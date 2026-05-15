@@ -14,6 +14,7 @@
     "build:all": "electron-builder --win --mac --linux",
     "test": "node --test test/*.test.js",
     "create-theme": "node scripts/create-theme.js",
+    "export-agent-icons": "node scripts/export-agent-icons.js",
     "install:claude-hooks": "node hooks/install.js",
     "uninstall:claude-hooks": "node hooks/uninstall.js",
     "install:gemini-hooks": "node hooks/gemini-install.js",
