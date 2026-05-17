@@ -97,7 +97,7 @@ test("ensureCurrentPlatformSidecar reports fetch failures without throwing", asy
   assert.equal(result.command, "npm run fetch:sidecars -- --target darwin-arm64");
   assert.match(stderr.text(), /could not be fetched automatically/);
   assert.match(stderr.text(), /npm run fetch:sidecars -- --target darwin-arm64/);
-  assert.match(stderr.text(), /CLAWD_SKIP_SIDECAR_FETCH=1 npm start/);
+  assert.match(stderr.text(), /Set CLAWD_SKIP_SIDECAR_FETCH=1 before running npm start/);
 });
 
 test("ensureCurrentPlatformSidecar honors skip and valid override env vars", async () => {
@@ -147,6 +147,28 @@ test("ensureCurrentPlatformSidecar reports a missing override path without fetch
   assert.equal(result.reason, "override-path-missing");
   assert.match(result.path, /missing-sidecar/);
   assert.match(stderr.text(), /CLAWD_CC_CONNECT_CLAWD_PATH is set but no sidecar executable was found/);
+  assert.match(stderr.text(), /Clawd will still launch/);
+});
+
+test("ensureCurrentPlatformSidecar reports strict override failures accurately", async () => {
+  const stderr = makeStream();
+  const result = await ensure.ensureCurrentPlatformSidecar({
+    strict: true,
+    env: { CLAWD_CC_CONNECT_CLAWD_PATH: "/tmp/missing-sidecar" },
+    stderr,
+    fs: {
+      existsSync: () => false,
+      statSync: () => {
+        throw new Error("missing");
+      },
+    },
+    fetchSidecarBinaries: () => {
+      throw new Error("should not fetch");
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(stderr.text(), /Strict mode will stop launch/);
 });
 
 test("resolveOverridePath appends the runtime executable for directory-like values", () => {

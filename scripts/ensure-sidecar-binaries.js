@@ -76,6 +76,10 @@ function write(stream, message) {
   if (stream && typeof stream.write === "function") stream.write(message);
 }
 
+function skipPreflightHint() {
+  return `Set ${SKIP_ENV}=1 before running npm start to skip the sidecar preflight.`;
+}
+
 async function ensureCurrentPlatformSidecar(options = {}) {
   const env = options.env || process.env;
   const fsModule = options.fs || fs;
@@ -92,9 +96,12 @@ async function ensureCurrentPlatformSidecar(options = {}) {
     if (isExistingFile(fsModule, overridePath)) {
       return { ok: true, skipped: true, reason: "override-path", path: overridePath };
     }
+    const launchMessage = options.strict
+      ? "Strict mode will stop launch until the override path is fixed, or unset to allow automatic sidecar fetch."
+      : "Clawd will still launch. Fix the override path, or unset it to allow automatic sidecar fetch.";
     write(stderr, [
       `${OVERRIDE_ENV} is set but no sidecar executable was found: ${overridePath || env[OVERRIDE_ENV]}`,
-      "Clawd will still launch. Fix the override path, or unset it to allow automatic sidecar fetch.",
+      launchMessage,
       "",
     ].join("\n"));
     return { ok: false, skipped: true, reason: "override-path-missing", path: overridePath || String(env[OVERRIDE_ENV]) };
@@ -134,7 +141,7 @@ async function ensureCurrentPlatformSidecar(options = {}) {
     write(stderr, [
       "Telegram approval sidecar is missing and could not be fetched automatically.",
       `Run: ${command}`,
-      `Skip next time: ${SKIP_ENV}=1 npm start`,
+      skipPreflightHint(),
       `Reason: ${message}`,
       "",
     ].join("\n"));
@@ -193,6 +200,7 @@ module.exports = {
   sidecarFetchCommand,
   runtimeExecutableName,
   resolveOverridePath,
+  skipPreflightHint,
   ensureCurrentPlatformSidecar,
   parseArgs,
 };

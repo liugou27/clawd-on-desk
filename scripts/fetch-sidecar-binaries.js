@@ -23,6 +23,19 @@ const TARGETS = Object.freeze([
   Object.freeze({ platform: "linux", arch: "x64", dir: "linux-x64", exe: "cc-connect-clawd", archiveExt: ".tar.gz" }),
 ]);
 
+const PINNED_CHECKSUMS = Object.freeze({
+  "windows-x64/cc-connect-clawd.exe": "a6c6303d0f4321d33d450e72d8d5bc02bcf7dcb8a4b3b7e4bcd6e5ae16f45d8c",
+  "cc-connect-clawd-windows-x64.zip": "70c7283f94dc55b974ca50a1ce2c564f0bf94092946f254d22bbe5e5f07fd4a7",
+  "windows-arm64/cc-connect-clawd.exe": "f9366d967a58756f4351e37cbed5c54c8b34080fe82a1d50b878b6d0b43b5ce6",
+  "cc-connect-clawd-windows-arm64.zip": "1433cb84364892b9e276c28e7b5775d0e126bc66f60b70f4549d02b275d8f368",
+  "darwin-x64/cc-connect-clawd": "2e2fd34b7cb9cf9311c8ce80cd1782b2ddd52b148615e8922de765013cdf9cc2",
+  "cc-connect-clawd-darwin-x64.tar.gz": "f1300292143f3f98d959303b62d5627a195c726c018a0eecf2ee2bd2616f7c0a",
+  "darwin-arm64/cc-connect-clawd": "f81133bbf1eabe995f7095359d959478a2923576adc68c5be1f18e398f0d4b69",
+  "cc-connect-clawd-darwin-arm64.tar.gz": "3cd949b0aff2fbf87c1a437a541be38cb1be028b104d4a037519b3873582d468",
+  "linux-x64/cc-connect-clawd": "81af234300c0e401368000027e19f4a81859a9377ed0e40e6c3909eca2631c57",
+  "cc-connect-clawd-linux-x64.tar.gz": "fba4ab2c0ae68230cdd03727795b1b1ac3ff9270bd4c742c42fb80c3e00a7efa",
+});
+
 function archiveName(target) {
   return `cc-connect-clawd-${target.dir}${target.archiveExt}`;
 }
@@ -37,6 +50,12 @@ function releaseAssetUrl(assetName, release = DEFAULT_RELEASE) {
 
 function targetBinaryPath(rootDir, target) {
   return path.join(rootDir, SIDECAR_ROOT, target.dir, target.exe);
+}
+
+function checksumFor(name, checksums = PINNED_CHECKSUMS) {
+  const expected = checksums && checksums[name];
+  if (!expected) throw new Error(`Missing pinned checksum for ${name}`);
+  return String(expected).toLowerCase();
 }
 
 function selectTargets(raw) {
@@ -61,23 +80,23 @@ function selectTargets(raw) {
 function buildReleaseManifest(options = {}) {
   const rootDir = options.rootDir || path.join(__dirname, "..");
   const release = options.release || DEFAULT_RELEASE;
+  const checksums = options.checksums || PINNED_CHECKSUMS;
   const targets = selectTargets(options.target || "all").map((target) => {
     const archive = archiveName(target);
+    const binaryChecksum = binaryChecksumName(target);
     return {
       ...target,
       archive,
       archiveUrl: releaseAssetUrl(archive, release),
       archiveChecksumName: archive,
-      binaryChecksumName: binaryChecksumName(target),
+      archiveSha256: checksumFor(archive, checksums),
+      binaryChecksumName: binaryChecksum,
+      binarySha256: checksumFor(binaryChecksum, checksums),
       binaryPath: targetBinaryPath(rootDir, target),
     };
   });
   return {
     release,
-    checksums: {
-      name: "checksums.txt",
-      url: releaseAssetUrl("checksums.txt", release),
-    },
     targets,
   };
 }
@@ -248,17 +267,20 @@ async function fetchSidecarBinaries(options = {}) {
     ...(options.release || {}),
     tag: options.tag || (options.release && options.release.tag) || DEFAULT_RELEASE.tag,
   };
-  const manifest = buildReleaseManifest({ rootDir, release, target: options.target || "all" });
+  const manifest = buildReleaseManifest({
+    rootDir,
+    release,
+    target: options.target || "all",
+    checksums: options.checksums || PINNED_CHECKSUMS,
+  });
   if (options.dryRun) return { ok: true, manifest, installed: [] };
 
-  const checksumsBuffer = await download(manifest.checksums.url);
-  const checksums = parseChecksums(checksumsBuffer.toString("utf8"));
   const installed = [];
   for (const target of manifest.targets) {
     const archiveBuffer = await download(target.archiveUrl);
-    verifyChecksum(archiveBuffer, checksums.get(target.archiveChecksumName), target.archiveChecksumName);
+    verifyChecksum(archiveBuffer, target.archiveSha256, target.archiveChecksumName);
     const binaryBuffer = extractSidecarBinary(archiveBuffer, target);
-    verifyChecksum(binaryBuffer, checksums.get(target.binaryChecksumName), target.binaryChecksumName);
+    verifyChecksum(binaryBuffer, target.binarySha256, target.binaryChecksumName);
     installBinary(fsModule, target.binaryPath, binaryBuffer);
     installed.push({ target: target.dir, path: target.binaryPath });
   }
@@ -348,10 +370,12 @@ module.exports = {
   FETCH_COMMAND,
   DEFAULT_RELEASE,
   TARGETS,
+  PINNED_CHECKSUMS,
   archiveName,
   binaryChecksumName,
   releaseAssetUrl,
   targetBinaryPath,
+  checksumFor,
   selectTargets,
   buildReleaseManifest,
   parseChecksums,

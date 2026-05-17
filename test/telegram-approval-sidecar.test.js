@@ -15,6 +15,7 @@ const {
   sidecarExecutableName,
   sidecarPlatformArchDir,
   sidecarResourceRelativePath,
+  devSidecarFetchHint,
   defaultConfigPath,
   defaultTokenEnvFilePath,
   redactText,
@@ -22,6 +23,7 @@ const {
   SIDECAR_ENV_TOKEN_FILE,
   SIDECAR_PATH_ENV,
 } = require("../src/telegram-approval-sidecar");
+const { TARGETS: SIDECAR_FETCH_TARGETS } = require("../scripts/fetch-sidecar-binaries");
 
 class FakeStream extends EventEmitter {
   setEncoding(value) {
@@ -345,6 +347,14 @@ test("sidecar binary names are stable across packaged platforms", () => {
     sidecarResourceRelativePath({ platform: "linux", arch: "x64" }),
     path.join("sidecars", "cc-connect-clawd", "linux-x64", "cc-connect-clawd")
   );
+});
+
+test("source fetch hints cover every pinned fetch target", () => {
+  const platformMap = { windows: "win32", darwin: "darwin", linux: "linux" };
+  for (const target of SIDECAR_FETCH_TARGETS) {
+    const hint = devSidecarFetchHint({ platform: platformMap[target.platform], arch: target.arch });
+    assert.match(hint, new RegExp(`npm run fetch:sidecars -- --target ${target.dir}`));
+  }
 });
 
 test("sidecar manager reports a clear missing binary error for resolved paths", async () => {
