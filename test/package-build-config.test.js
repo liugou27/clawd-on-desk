@@ -176,7 +176,7 @@ describe("package build config", () => {
 
     it("publishes GitHub releases only for version tags", () => {
       const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
-      const releaseIndex = workflow.indexOf("\n  release:\n");
+      const releaseIndex = workflow.search(/\r?\n  release:\r?\n/);
       assert.ok(releaseIndex >= 0, "workflow should define a release job");
       const releaseGateIndex = workflow.indexOf("if: startsWith(github.ref, 'refs/tags/v')", releaseIndex);
       const bodyPathIndex = workflow.indexOf("body_path: docs/releases/release-${{ github.ref_name }}.md", releaseIndex);
@@ -187,7 +187,7 @@ describe("package build config", () => {
 
     it("creates tag releases as drafts for final asset inspection", () => {
       const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
-      const releaseIndex = workflow.indexOf("\n  release:\n");
+      const releaseIndex = workflow.search(/\r?\n  release:\r?\n/);
       assert.ok(releaseIndex >= 0, "workflow should define a release job");
       const actionIndex = workflow.indexOf("softprops/action-gh-release@v2", releaseIndex);
       const draftIndex = workflow.indexOf("draft: true", actionIndex);
