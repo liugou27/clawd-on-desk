@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { EventEmitter } = require("events");
 const {
   applyWindowsAppUserModelId,
   shouldOpenSettingsWindowFromArgv,
@@ -181,6 +182,7 @@ let telegramApprovalConfigSignature = "";
 let telegramApprovalTokenRevision = 0;
 let hardwareBuddyAdapter = null;
 let hardwareBuddyStatus = null;
+let hardwareBuddyTestApprovalPromise = null;
 let lastHardwareBuddyStatusLogKey = "";
 let unsubscribeHardwareBuddySettings = null;
 const shortcutHandlers = {
@@ -1505,6 +1507,166 @@ function broadcastHardwareBuddyStatus(status) {
   }
 }
 
+function createHardwareBuddyTestResponse(onFinish) {
+  const res = new EventEmitter();
+  res.writableEnded = false;
+  res.destroyed = false;
+  res.headersSent = false;
+  res.statusCode = null;
+  res.body = "";
+  res.writeHead = (statusCode, headers) => {
+    res.statusCode = statusCode;
+    res.headers = headers || {};
+    res.headersSent = true;
+    return res;
+  };
+  res.end = (body = "") => {
+    if (res.writableEnded || res.destroyed) return res;
+    res.writableEnded = true;
+    res.body = typeof body === "string" ? body : String(body || "");
+    if (typeof onFinish === "function") onFinish(null, res);
+    res.emit("close");
+    return res;
+  };
+  res.destroy = (err) => {
+    if (res.writableEnded || res.destroyed) return res;
+    res.destroyed = true;
+    if (typeof onFinish === "function") onFinish(err || new Error("response destroyed"), res);
+    res.emit("close");
+    return res;
+  };
+  return res;
+}
+
+function parseHardwareBuddyTestDecision(res) {
+  if (!res || !res.body) return null;
+  try {
+    const parsed = JSON.parse(res.body);
+    const decision = parsed
+      && parsed.hookSpecificOutput
+      && parsed.hookSpecificOutput.decision;
+    const behavior = decision && decision.behavior;
+    return behavior === "allow" || behavior === "deny" ? behavior : null;
+  } catch {
+    return null;
+  }
+}
+
+function hardwareBuddyTestError(code, message) {
+  return { status: "error", code, message };
+}
+
+function sendHardwareBuddyTestApproval() {
+  if (hardwareBuddyTestApprovalPromise) return hardwareBuddyTestApprovalPromise;
+
+  const status = hardwareBuddyAdapter && typeof hardwareBuddyAdapter.getStatus === "function"
+    ? hardwareBuddyAdapter.getStatus()
+    : hardwareBuddyStatus;
+  if (!status || status.enabled !== true || status.started !== true) {
+    return Promise.resolve(hardwareBuddyTestError("disabled", "Hardware Buddy is not enabled."));
+  }
+  if (status.permissionsEnabled !== true) {
+    return Promise.resolve(hardwareBuddyTestError("permissions_off", "Hardware permission replies are disabled."));
+  }
+  if (status.connected !== true || status.secure !== true) {
+    return Promise.resolve(hardwareBuddyTestError("not_secure", "Hardware Buddy is not connected over a secure link."));
+  }
+
+  const createdAt = Date.now();
+  const sessionId = `hardware-buddy-test-${createdAt}`;
+  const toolUseId = `hardware-buddy-test-tool-${createdAt}`;
+  const timeoutMs = 60000;
+
+  const promise = new Promise((resolve) => {
+    let settled = false;
+    let permEntry = null;
+    let timeout = null;
+    let noDecisionCode = null;
+
+    const cleanupSession = () => {
+      try {
+        _state.updateSession(sessionId, "idle", "SessionEnd", { agentId: "codex" });
+      } catch (err) {
+        hardwareBuddyLog(`test cleanup failed: ${err && err.message ? err.message : err}`);
+      }
+    };
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      cleanupSession();
+      resolve(result);
+    };
+
+    const res = createHardwareBuddyTestResponse((err, response) => {
+      if (settled) return;
+      if (err) {
+        finish(hardwareBuddyTestError("internal_error", err.message || String(err)));
+        return;
+      }
+      const decision = parseHardwareBuddyTestDecision(response);
+      if (decision === "allow" || decision === "deny") {
+        finish({ status: "ok", decision });
+        return;
+      }
+      finish(hardwareBuddyTestError(
+        noDecisionCode || "no_decision",
+        noDecisionCode === "timeout"
+          ? "Hardware Buddy test timed out."
+          : "Hardware Buddy test did not receive a decision."
+      ));
+    });
+
+    permEntry = {
+      res,
+      abortHandler: null,
+      suggestions: [],
+      sessionId,
+      bubble: null,
+      hideTimer: null,
+      toolName: "Bash",
+      toolInput: {
+        command: "echo hardware-buddy-smoke",
+        description: "Hardware Buddy smoke test: echo hardware-buddy-smoke",
+      },
+      toolUseId,
+      toolInputFingerprint: `hardware-buddy-test:${createdAt}`,
+      resolvedSuggestion: null,
+      createdAt,
+      agentId: "codex",
+      isCodex: true,
+      isHardwareBuddyTest: true,
+      cwd: __dirname,
+      codexOriginator: "clawd-settings",
+      codexSource: "hardware-buddy-test",
+    };
+
+    try {
+      _state.updateSession(sessionId, "idle", "SessionStart", {
+        agentId: "codex",
+        cwd: __dirname,
+        sessionTitle: "Hardware Buddy test",
+      });
+      addPendingPermission(permEntry, "hardware-buddy-test");
+    } catch (err) {
+      removePendingPermission(permEntry, "hardware-buddy-test-failed");
+      finish(hardwareBuddyTestError("internal_error", err && err.message ? err.message : String(err)));
+      return;
+    }
+
+    timeout = setTimeout(() => {
+      if (settled) return;
+      hardwareBuddyLog("test approval timed out");
+      noDecisionCode = "timeout";
+      resolvePermissionEntry(permEntry, "no-decision", "Hardware Buddy test timed out");
+    }, timeoutMs);
+  });
+  hardwareBuddyTestApprovalPromise = promise.finally(() => {
+    hardwareBuddyTestApprovalPromise = null;
+  });
+  return hardwareBuddyTestApprovalPromise;
+}
+
 hardwareBuddyAdapter = createHardwareBuddyAdapter({
   env: process.env,
   getSettings: () => _settingsController.get("hardwareBuddy"),
@@ -1808,6 +1970,7 @@ registerSettingsIpc({
   getHardwareBuddyStatus: () => hardwareBuddyStatus || (hardwareBuddyAdapter && hardwareBuddyAdapter.getStatus
     ? hardwareBuddyAdapter.getStatus()
     : null),
+  testHardwareBuddyApproval: () => sendHardwareBuddyTestApproval(),
   checkForUpdates,
   aboutHeroSvgPath: path.join(__dirname, "..", "assets", "svg", "clawd-about-hero.svg"),
 });

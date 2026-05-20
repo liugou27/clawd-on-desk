@@ -124,6 +124,10 @@ function registerSettingsIpc(options = {}) {
   const getAllAgents = requiredDependency(options.getAllAgents, "getAllAgents");
   const checkForUpdates = options.checkForUpdates || (() => {});
   const getHardwareBuddyStatus = options.getHardwareBuddyStatus || (() => null);
+  const testHardwareBuddyApproval = options.testHardwareBuddyApproval || (async () => ({
+    status: "error",
+    message: "Hardware Buddy test approval is unavailable",
+  }));
   const now = options.now || (() => Date.now());
   const aboutHeroSvgPath = options.aboutHeroSvgPath
     || path.join(__dirname, "..", "assets", "svg", "clawd-about-hero.svg");
@@ -387,6 +391,7 @@ function registerSettingsIpc(options = {}) {
   });
 
   handle("settings:get-hardware-buddy-status", () => getHardwareBuddyStatus());
+  handle("settings:test-hardware-buddy-approval", () => testHardwareBuddyApproval());
 
   handle("settings:open-external", async (_event, url) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {

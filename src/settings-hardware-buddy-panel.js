@@ -37,6 +37,7 @@
           "hardwareBuddyPermissionsDesc",
           { disabled: !getHardwareBuddyConfig(state).enabled }
         ),
+        buildHardwareBuddyTestRow(core),
       ])],
     });
   }
@@ -121,6 +122,19 @@
     return t(core, `hardwareBuddyStatus_${kind}`);
   }
 
+  function hardwareBuddyReplyKind(status, config = {}) {
+    if (!config.enabled || !config.permissionsEnabled) return "off";
+    if (status && status.connected && status.secure) return "on";
+    return "blocked";
+  }
+
+  function hardwareBuddyReplyText(core, status, config = getHardwareBuddyConfig(core.state)) {
+    const kind = hardwareBuddyReplyKind(status, config);
+    if (kind === "on") return t(core, "hardwareBuddyRepliesOn");
+    if (kind === "blocked") return t(core, "hardwareBuddyRepliesBlocked");
+    return t(core, "hardwareBuddyRepliesOff");
+  }
+
   function hardwareBuddyStatusDetail(core, status, config = getHardwareBuddyConfig(core.state)) {
     if (!config.enabled) return t(core, "hardwareBuddyStatusOffDetail");
     const err = status && status.lastError;
@@ -178,22 +192,127 @@
 
   function buildHardwareBuddyStatusRow(core) {
     const status = core.runtime && core.runtime.hardwareBuddyStatus;
+    const config = getHardwareBuddyConfig(core.state);
     const row = document.createElement("div");
     row.className = "row hardware-buddy-status-row";
-    const kind = hardwareBuddyStatusKind(core, status);
+    const kind = hardwareBuddyStatusKind(core, status, config);
+    const replyKind = hardwareBuddyReplyKind(status, config);
+    row.innerHTML =
+      `<div class="row-text">` +
+        `<span class="row-label"></span>` +
+        `<span class="row-desc"></span>` +
+      `</div>` +
+      `<div class="row-control hardware-buddy-status-control">` +
+        `<span class="hardware-buddy-status-badge"></span>` +
+        `<span class="hardware-buddy-status-badge hardware-buddy-reply-badge"></span>` +
+      `</div>`;
+    row.querySelector(".row-label").textContent = t(core, "hardwareBuddyStatus");
+    row.querySelector(".row-desc").textContent = hardwareBuddyStatusDetail(core, status, config);
+    const badge = row.querySelector(".hardware-buddy-status-badge");
+    badge.className = `hardware-buddy-status-badge hardware-buddy-status-${kind}`;
+    badge.textContent = hardwareBuddyStatusText(core, status, config);
+    const replyBadge = row.querySelector(".hardware-buddy-reply-badge");
+    replyBadge.className = `hardware-buddy-status-badge hardware-buddy-reply-badge hardware-buddy-reply-${replyKind}`;
+    replyBadge.textContent = hardwareBuddyReplyText(core, status, config);
+    return row;
+  }
+
+  function getHardwareBuddyRuntime(core) {
+    const runtime = core.runtime || (core.runtime = {});
+    runtime.hardwareBuddyTest = runtime.hardwareBuddyTest || {
+      pending: false,
+      result: null,
+      contextKey: "",
+    };
+    return runtime.hardwareBuddyTest;
+  }
+
+  function hardwareBuddyTestContextKey(status, config) {
+    return [
+      config.enabled ? "enabled" : "disabled",
+      config.permissionsEnabled ? "replies-on" : "replies-off",
+      status && status.connected ? "connected" : "disconnected",
+      status && status.secure ? "secure" : "insecure",
+    ].join("|");
+  }
+
+  function syncHardwareBuddyTestContext(testState, status, config) {
+    const contextKey = hardwareBuddyTestContextKey(status, config);
+    if (testState.contextKey && testState.contextKey !== contextKey && !testState.pending) {
+      testState.result = null;
+    }
+    testState.contextKey = contextKey;
+  }
+
+  function hardwareBuddyTestErrorText(core, result) {
+    const code = result && typeof result.code === "string" ? result.code : "";
+    if (code) {
+      const key = `hardwareBuddyTestErr_${code}`;
+      const translated = t(core, key);
+      if (translated !== key) return translated;
+    }
+    return result && result.message ? result.message : t(core, "hardwareBuddyTestError");
+  }
+
+  function hardwareBuddyTestDetail(core, status, config, testState) {
+    if (testState.pending) return t(core, "hardwareBuddyTestPending");
+    if (testState.result && testState.result.status === "ok") {
+      return t(core, "hardwareBuddyTestOk").replace("{decision}", testState.result.decision || "");
+    }
+    if (testState.result && testState.result.status === "error") {
+      return hardwareBuddyTestErrorText(core, testState.result);
+    }
+    if (!config.enabled) return t(core, "hardwareBuddyTestDisabled");
+    if (!config.permissionsEnabled) return t(core, "hardwareBuddyTestRepliesOff");
+    if (!(status && status.connected && status.secure)) return t(core, "hardwareBuddyTestNeedsSecure");
+    return t(core, "hardwareBuddyTestDesc");
+  }
+
+  function buildHardwareBuddyTestRow(core) {
+    const status = core.runtime && core.runtime.hardwareBuddyStatus;
+    const config = getHardwareBuddyConfig(core.state);
+    const testState = getHardwareBuddyRuntime(core);
+    syncHardwareBuddyTestContext(testState, status, config);
+    const canTest = config.enabled && config.permissionsEnabled
+      && status && status.connected && status.secure
+      && !testState.pending
+      && window.settingsAPI && typeof window.settingsAPI.testHardwareBuddyApproval === "function";
+    const row = document.createElement("div");
+    row.className = "row hardware-buddy-test-row";
     row.innerHTML =
       `<div class="row-text">` +
         `<span class="row-label"></span>` +
         `<span class="row-desc"></span>` +
       `</div>` +
       `<div class="row-control">` +
-        `<span class="hardware-buddy-status-badge"></span>` +
+        `<button type="button" class="hardware-buddy-test-button"></button>` +
       `</div>`;
-    row.querySelector(".row-label").textContent = t(core, "hardwareBuddyStatus");
-    row.querySelector(".row-desc").textContent = hardwareBuddyStatusDetail(core, status);
-    const badge = row.querySelector(".hardware-buddy-status-badge");
-    badge.className = `hardware-buddy-status-badge hardware-buddy-status-${kind}`;
-    badge.textContent = hardwareBuddyStatusText(core, status);
+    row.querySelector(".row-label").textContent = t(core, "hardwareBuddyTest");
+    row.querySelector(".row-desc").textContent = hardwareBuddyTestDetail(core, status, config, testState);
+    const button = row.querySelector("button");
+    button.textContent = testState.pending ? t(core, "hardwareBuddyTestWaiting") : t(core, "hardwareBuddyTestButton");
+    button.disabled = !canTest;
+    button.addEventListener("click", () => {
+      if (button.disabled || testState.pending) return;
+      testState.pending = true;
+      testState.result = null;
+      core.ops.requestRender({ content: true });
+      window.settingsAPI.testHardwareBuddyApproval().then((result) => {
+        testState.pending = false;
+        testState.result = result || { status: "error", message: t(core, "hardwareBuddyTestError") };
+        if (testState.result.status === "ok") {
+          core.ops.showToast(t(core, "hardwareBuddyTestToastOk"), { error: false });
+        } else {
+          core.ops.showToast(t(core, "hardwareBuddyTestToastError") + hardwareBuddyTestErrorText(core, testState.result), { error: true });
+        }
+        core.ops.requestRender({ content: true });
+      }).catch((err) => {
+        testState.pending = false;
+        testState.result = { status: "error", message: err && err.message ? err.message : String(err) };
+        core.ops.showToast(t(core, "hardwareBuddyTestToastError") + hardwareBuddyTestErrorText(core, testState.result), { error: true });
+        core.ops.requestRender({ content: true });
+      });
+    });
     return row;
   }
 

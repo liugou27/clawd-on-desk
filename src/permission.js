@@ -363,9 +363,17 @@ function verifyUnregister(accelerator) {
   return true;
 }
 
+function isHardwareBuddyTestPermission(perm) {
+  return !!(perm && perm.isHardwareBuddyTest);
+}
+
 function getActionablePermissions() {
   return pendingPermissions.filter(
-    p => !p.isElicitation && !p.isCodexNotify && !p.isKimiNotify && p.toolName !== "ExitPlanMode"
+    p => !isHardwareBuddyTestPermission(p)
+      && !p.isElicitation
+      && !p.isCodexNotify
+      && !p.isKimiNotify
+      && p.toolName !== "ExitPlanMode"
   );
 }
 
@@ -475,7 +483,8 @@ function repositionBubbles() {
   const wa = getAnchorWorkArea(petBounds);
   const hitRect = ctx.bubbleFollowPet ? ctx.getHitRectScreen(petBounds) : null;
 
-  const bubbleHeights = pendingPermissions.map(perm =>
+  const layoutPermissions = pendingPermissions.filter((perm) => !isHardwareBuddyTestPermission(perm));
+  const bubbleHeights = layoutPermissions.map(perm =>
     clampBubbleHeight(
       perm.measuredHeight || estimateBubbleHeight((perm.suggestions || []).length),
       wa.height
@@ -493,8 +502,8 @@ function repositionBubbles() {
     hudReservedOffset: typeof ctx.getHudReservedOffset === "function" ? ctx.getHudReservedOffset() : 0,
   });
 
-  for (let i = 0; i < pendingPermissions.length; i++) {
-    const perm = pendingPermissions[i];
+  for (let i = 0; i < layoutPermissions.length; i++) {
+    const perm = layoutPermissions[i];
     if (perm.bubble && !perm.bubble.isDestroyed() && bounds[i]) {
       perm.bubble.setBounds(bounds[i]);
     }
