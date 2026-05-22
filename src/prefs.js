@@ -145,6 +145,11 @@ const SCHEMA = {
       "copilot-cli": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
       "cursor-agent": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
       "gemini-cli": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
+      // Antigravity is state-only post-D2 — Clawd never surfaces a permission
+      // bubble for agy regardless of this flag (see server-route-permission.js
+      // antigravity branch). Default kept as false so legacy reads don't see a
+      // stale "true" implying bubbles are enabled.
+      "antigravity-cli": { enabled: true, permissionsEnabled: false },
       "codebuddy": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
       "kiro-cli": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
       "kimi-cli": { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },

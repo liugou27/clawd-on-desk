@@ -6,6 +6,7 @@ const AGENT_LABELS = {
   "copilot-cli": "Copilot",
   "cursor-agent": "Cursor Agent",
   "gemini-cli": "Gemini",
+  "antigravity-cli": "Antigravity",
   "kiro-cli": "Kiro",
   "kimi-cli": "Kimi",
   opencode: "opencode",

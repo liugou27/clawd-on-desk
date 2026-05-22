@@ -12,6 +12,7 @@ function buildSettingsAgentOrderExports() {
   ];
 
   const NON_COLLAPSIBLE_AGENT_PRIORITY = [
+    "antigravity-cli",
     "cursor-agent",
     "copilot-cli",
     "kiro-cli",

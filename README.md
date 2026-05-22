@@ -40,6 +40,7 @@ Thinking when you prompt, typing when tools run, grooving or juggling for subage
 - **Codex CLI** — official hooks with JSONL fallback (`~/.codex/sessions/`), registered automatically with real permission bubbles
 - **Copilot CLI** — command hooks via `~/.copilot/hooks/hooks.json`
 - **Gemini CLI** — command hooks via `~/.gemini/settings.json` (registered automatically when Clawd starts, or run `npm run install:gemini-hooks`)
+- **Antigravity CLI (agy)** — command hooks via `~/.gemini/config/hooks.json` (registered automatically when Antigravity config exists, or run `npm run install:antigravity-hooks`); **state-only**: Clawd never pops a permission bubble for agy. Every Allow / Deny / Always-allow choice happens in agy's own terminal menu
 - **Cursor Agent** — [Cursor IDE hooks](https://cursor.com/docs/agent/hooks) in `~/.cursor/hooks.json` (registered automatically when Clawd starts, or run `npm run install:cursor-hooks`)
 - **CodeBuddy** — Claude Code-compatible command hooks + HTTP permission hooks via `~/.codebuddy/settings.json` (registered automatically when Clawd starts, or run `node hooks/codebuddy-install.js`)
 - **Kiro CLI** — command hooks injected into custom agent configs under `~/.kiro/agents/`, plus an auto-created `clawd` agent that is re-synced from Kiro's built-in `kiro_default` whenever Clawd starts, so you can opt into hooks with minimal behavior drift via `kiro-cli --agent clawd` or `/agent swap clawd` (registered automatically when Clawd starts, or run `npm run install:kiro-hooks`). State hooks are verified on macOS and Windows.
@@ -61,7 +62,7 @@ Thinking when you prompt, typing when tools run, grooving or juggling for subage
 - **Mini mode** — drag to right edge or right-click "Mini Mode"; Clawd hides at screen edge with peek-on-hover, mini alerts/celebrations, and parabolic jump transitions
 
 ### Permission Bubble
-- **In-app permission review** — when Claude Code, Codex CLI, CodeBuddy, opencode, or Pi request tool permissions, Clawd pops a floating bubble card instead of waiting in the terminal
+- **In-app permission review** — when Claude Code, Codex CLI, CodeBuddy, opencode, or Pi request supported tool permissions, Clawd pops a floating bubble card instead of waiting in the terminal
 - **Allow / deny / agent-native extras** — one-click approve or reject, plus permission rules / `Always` actions when the source agent supports them
 - **Global hotkeys** — `Ctrl+Shift+Y` to Allow, `Ctrl+Shift+N` to Deny the latest permission bubble (only registered while bubbles are visible)
 - **Stacking layout** — multiple permission requests stack upward from the bottom-right corner
@@ -81,7 +82,7 @@ Thinking when you prompt, typing when tools run, grooving or juggling for subage
 - **Position memory** — Clawd remembers where you left it across restarts (including mini mode)
 - **Single instance lock** — prevents duplicate Clawd windows
 - **Auto-start** — Claude Code's SessionStart hook can launch Clawd automatically if it's not running
-- **Do Not Disturb** — right-click or tray menu to enter sleep mode; all hook events are silenced until you wake Clawd. Permission bubbles are suppressed during DND — Codex and opencode fall back to their native prompts, Pi falls back to terminal confirmation, while Claude Code and CodeBuddy fall back to their built-in permission flow
+- **Do Not Disturb** — right-click or tray menu to enter sleep mode; all hook events are silenced until you wake Clawd. Permission bubbles are suppressed during DND — Codex and opencode fall back to their native prompts, Pi falls back to terminal confirmation, while Claude Code and CodeBuddy fall back to their built-in permission flow. Antigravity is state-only and always uses its own native menu.
 - **Sound effects** — short audio cues on task completion and permission requests (toggle via right-click menu; 10s cooldown, auto-muted during DND)
 - **System tray** — resize (S/M/L), DND mode, language switch, auto-start, check for updates
 - **i18n** — English, Simplified Chinese, Traditional Chinese, Korean, and Japanese UI; switch via right-click menu or tray

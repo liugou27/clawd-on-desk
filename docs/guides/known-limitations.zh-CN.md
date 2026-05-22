@@ -9,6 +9,7 @@
 | **Copilot CLI：本地需手动配置 hooks** | 本地安装仍需手动创建 `~/.copilot/hooks/hooks.json`。SSH 远程部署 (`scripts/remote-deploy.sh`) 现在已经自动配置 Copilot hooks。 |
 | **Copilot CLI：无权限气泡** | Copilot 的 `preToolUse` 只支持拒绝，无法做完整的允许/拒绝审批流。权限气泡目前支持 Claude Code、Codex CLI、CodeBuddy、opencode 和 Pi。 |
 | **Gemini CLI：无权限气泡** | Gemini 仍在终端内处理工具审批。Clawd 会观察 Gemini hook 事件，但除非 Gemini 未来提供兼容的阻塞式审批协议，否则不显示权限气泡。 |
+| **Antigravity CLI：无权限气泡（仅状态同步）** | Clawd **不会为 agy 弹任何权限气泡**。所有 Allow / Deny / Always-allow 决策都在 agy 自己的 5 选项终端菜单里完成（同意 / 同意并持久 / 拒绝 / 永远拒绝 / 永远拒绝并持久）。想要永久规则就在 agy 菜单里选择标有「Persist to settings.json」的选项 —— 规则落到 `~/.gemini/antigravity-cli/settings.json`，你也可以在那里清理。dogfooding 显示在它之上再加 Clawd bubble 会让单次任务变 8-10 次确认，因此设计上让 agy 完全拥有权限流程。桌宠仍通过 PreInvocation / PostToolUse / Stop hook 反映 working / idle / attention 状态。 |
 | **Cursor Agent：无权限气泡** | Cursor 在 hook 的 stdout JSON 里处理权限，而不是走 HTTP 阻塞式审批，Clawd 无法接管这条审批链路。 |
 | **Cursor Agent：启动恢复能力有限** | 启动时不做进程检测，否则任意 Cursor 编辑器进程都可能误判为活跃会话。Clawd 会保持 idle，直到收到第一条 hook 事件。 |
 | **Hermes Agent：安装前可见但不生效** | Hermes 默认在 Settings 里开启，方便发现；但 Clawd 只有在检测到真实 Hermes 安装后才会写入 plugin 文件。安装 Hermes 后重启 Clawd，或执行 `npm run install:hermes-plugin`。 |

@@ -27,6 +27,7 @@
     "install:claude-hooks": "node hooks/install.js",
     "uninstall:claude-hooks": "node hooks/uninstall.js",
     "install:gemini-hooks": "node hooks/gemini-install.js",
+    "install:antigravity-hooks": "node hooks/antigravity-install.js",
     "install:cursor-hooks": "node hooks/cursor-install.js",
     "install:kiro-hooks": "node hooks/kiro-install.js",
     "install:kimi-hooks": "node hooks/kimi-install.js",

@@ -143,6 +143,7 @@ describe("server-route-permission helpers", () => {
       isAgentPermissionsEnabled: (agentId) => agentId !== "pi",
     }), true);
   });
+
 });
 
 describe("server-route-permission POST", () => {
@@ -278,6 +279,93 @@ describe("server-route-permission POST", () => {
     assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
     assert.deepStrictEqual(res.recorder.map((entry) => entry.outcome).filter(Boolean), ["dnd"]);
     assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+  });
+
+  it("returns no-decision for Antigravity DND fallback", async () => {
+    const res = await callPermissionPost(JSON.stringify({
+      agent_id: "antigravity-cli",
+      session_id: "antigravity:sid",
+      tool_name: "run_command",
+      tool_input: { CommandLine: "npm test", Cwd: "/repo" },
+    }), {
+      ctx: { doNotDisturb: true },
+    });
+
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
+    assert.deepStrictEqual(res.recorder.map((entry) => entry.outcome).filter(Boolean), ["dnd"]);
+    assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+  });
+
+  it("still returns 204 when Antigravity permission subgate is disabled (subgate has no effect on state-only flow)", async () => {
+    // D2: Antigravity is state-only. The permission subgate (per-agent
+    // bubble switch) no longer participates in any decision — kept here as
+    // a regression guard so a future Settings change cannot accidentally
+    // re-introduce a bubble path through the subgate.
+    const res = await callPermissionPost(JSON.stringify({
+      agent_id: "antigravity-cli",
+      session_id: "antigravity:sid",
+      tool_name: "write_to_file",
+      tool_input: { TargetFile: "out.txt", CodeContent: "x" },
+    }), {
+      ctx: {
+        isAgentPermissionsEnabled: (agentId) => agentId !== "antigravity-cli",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
+    assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+  });
+
+  it("returns no-decision when the Antigravity agent master switch is off", async () => {
+    const res = await callPermissionPost(JSON.stringify({
+      agent_id: "antigravity-cli",
+      session_id: "antigravity:sid",
+      tool_name: "run_command",
+      tool_input: { CommandLine: "npm test", Cwd: "/repo" },
+    }), {
+      ctx: {
+        isAgentEnabled: (agentId) => agentId !== "antigravity-cli",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
+    assert.deepStrictEqual(res.recorder.map((entry) => entry.outcome).filter(Boolean), ["disabled"]);
+    assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+  });
+
+  it("hard-blocks a stray Antigravity PreToolUse: 204, no bubble, no entry", async () => {
+    // D2 (post-codex-review-4): even if a user manually re-registers a
+    // PreToolUse hook in their hooks.json (or auto-sync is skipped), the
+    // server-side antigravity branch never creates a Clawd bubble. The
+    // hook will print decision:"ask" and agy's own native menu owns the
+    // permission decision.
+    const res = await callPermissionPost(JSON.stringify({
+      agent_id: "antigravity-cli",
+      session_id: "antigravity:sid",
+      tool_name: "run_command",
+      tool_input: { CommandLine: "npm test", Cwd: "/repo" },
+      tool_use_id: "tool-1",
+      source_pid: 456,
+      agent_pid: 456,
+      pid_chain: [789, 456, -1],
+      cwd: "/repo",
+      host: "devbox",
+      platform: "win32",
+    }));
+
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
+    assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+    assert.deepStrictEqual(res.ctx.calls.showPermissionBubble || [], []);
+    assert.deepStrictEqual(res.ctx.calls.addPendingPermission || [], []);
+    assert.deepStrictEqual(res.ctx.calls.maybeStartRemoteApproval || [], []);
+    assert.deepStrictEqual(res.ctx.calls.updateSession || [], []);
+    assert.deepStrictEqual(res.ctx.calls.removePendingPermission || [], []);
+    assert.deepStrictEqual(res.ctx.calls.sendPermissionResponse || [], []);
+    assert.deepStrictEqual(res.recorder.map((item) => item.outcome).filter(Boolean), ["accepted"]);
   });
 
   it("returns no-decision when Pi permission subgate is disabled", async () => {

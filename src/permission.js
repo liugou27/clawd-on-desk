@@ -153,6 +153,35 @@ function buildCodexPermissionResponseBody(decisionOrBehavior, message) {
   });
 }
 
+function sanitizeAntigravityPermissionDecision(decisionOrBehavior, message) {
+  const source = typeof decisionOrBehavior === "string"
+    ? { decision: decisionOrBehavior, reason: message }
+    : (decisionOrBehavior && typeof decisionOrBehavior === "object" ? decisionOrBehavior : null);
+  if (!source) return null;
+
+  const raw = typeof source.decision === "string"
+    ? source.decision
+    : (typeof source.behavior === "string" ? source.behavior : "");
+  const decision = raw === "deny" ? "deny"
+    : (raw === "allow" ? "allow"
+      : (raw === "ask" || raw === "force_ask" ? raw : null));
+  if (!decision) return null;
+
+  const out = { decision };
+  const reason = typeof source.reason === "string" && source.reason
+    ? source.reason
+    : (typeof source.message === "string" ? source.message : "");
+  if (reason && decision !== "allow") out.reason = reason;
+  if (decision === "allow") out.allowTool = true;
+  if (decision === "deny" && reason) out.denyReason = reason;
+  return out;
+}
+
+function buildAntigravityPermissionResponseBody(decisionOrBehavior, message) {
+  const decision = sanitizeAntigravityPermissionDecision(decisionOrBehavior, message);
+  return decision ? JSON.stringify(decision) : "{}";
+}
+
 function isPassiveNotifyEntry(permEntry) {
   return !!(permEntry && (permEntry.isCodexNotify || permEntry.isKimiNotify));
 }
@@ -663,6 +692,7 @@ function buildPermissionBubblePayload(permEntry) {
     isElicitation: permEntry.isElicitation || false,
     isOpencode: permEntry.isOpencode || false,
     isPi: permEntry.isPi || false,
+    isAntigravity: permEntry.isAntigravity || false,
     opencodeAlways: permEntry.opencodeAlwaysCandidates || [],
     opencodePatterns: permEntry.opencodePatterns || [],
     sessionFolder,
@@ -698,7 +728,7 @@ function compactRemoteApprovalText(value, maxLen = 200) {
 
 function isRemoteApprovalActionable(permEntry) {
   if (!permEntry || typeof permEntry !== "object") return false;
-  if (permEntry.isElicitation || permEntry.isCodexNotify || permEntry.isKimiNotify || permEntry.isOpencode) return false;
+  if (permEntry.isElicitation || permEntry.isCodexNotify || permEntry.isKimiNotify || permEntry.isOpencode || permEntry.isAntigravity) return false;
   if (permEntry.toolName === "ExitPlanMode" || permEntry.toolName === "AskUserQuestion") return false;
   if (PASSTHROUGH_TOOLS.has(permEntry.toolName)) return false;
   // Headless sessions auto-deny locally; mirror that on the Telegram side so a
@@ -942,6 +972,18 @@ function maybeStartRemoteApproval(permEntry) {
     return;
   }
 
+  if (permEntry.isAntigravity) {
+    if (behavior === "no-decision") {
+      sendAntigravityNoDecisionResponse(res, message || "fallback");
+    } else {
+      sendAntigravityPermissionResponse(res, {
+        behavior: behavior === "deny" ? "deny" : "allow",
+        message,
+      });
+    }
+    return;
+  }
+
   if (permEntry.isElicitation) {
     if (behavior === "no-decision") {
       // Autoclose: drop the socket so CC stops waiting, then refocus the
@@ -1096,6 +1138,25 @@ function sendCodexPermissionResponse(res, decisionOrBehavior, message) {
   return true;
 }
 
+function sendAntigravityNoDecisionResponse(res, reason = "") {
+  return sendNoDecisionResponse(res, reason, "antigravity");
+}
+
+function sendAntigravityPermissionResponse(res, decisionOrBehavior, message) {
+  if (!res || res.writableEnded || res.destroyed || res.headersSent) return false;
+  const responseBody = buildAntigravityPermissionResponseBody(decisionOrBehavior, message);
+  if (responseBody === "{}") {
+    return sendAntigravityNoDecisionResponse(res, "invalid decision");
+  }
+  permLog(`antigravity response: ${responseBody}`);
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID,
+  });
+  res.end(responseBody);
+  return true;
+}
+
 function handleBubbleHeight(event, height) {
   const senderWin = BrowserWindow.fromWebContents(event.sender);
   const perm = pendingPermissions.find(p => p.bubble === senderWin);
@@ -1130,8 +1191,9 @@ function handleDecide(event, behavior) {
     }
     return;
   }
-  if (perm.isPi && behavior !== "allow" && behavior !== "deny") {
-    resolvePermissionEntry(perm, "no-decision", `Unsupported Pi bubble action: ${String(behavior)}`);
+  if ((perm.isPi || perm.isAntigravity) && behavior !== "allow" && behavior !== "deny") {
+    const label = perm.isAntigravity ? "Antigravity" : "Pi";
+    resolvePermissionEntry(perm, "no-decision", `Unsupported ${label} bubble action: ${String(behavior)}`);
     if (behavior === "deny-and-focus") {
       ctx.focusTerminalForSession(perm.sessionId, { fallbackEntry: buildPermissionFocusEntry(perm) });
     }
@@ -1321,10 +1383,12 @@ function dismissInteractivePermissionWithoutDecision(perm, reason) {
     }, 250);
   }
   // Do not answer approval requests on the user's behalf. Dropping the UI
-  // means Codex receives no decision, CC/CodeBuddy fall back via socket
-  // close, and opencode falls back by receiving no bridge reply.
+  // means Codex/Antigravity/Pi receive no decision, CC/CodeBuddy fall back
+  // via socket close, and opencode falls back by receiving no bridge reply.
   if (perm.isCodex) {
     sendCodexNoDecisionResponse(perm.res, reason || "permission-dismissed");
+  } else if (perm.isAntigravity) {
+    sendAntigravityNoDecisionResponse(perm.res, reason || "permission-dismissed");
   } else if (perm.isPi) {
     sendNoDecisionResponse(perm.res, reason || "permission-dismissed", "pi");
   } else if (!perm.isOpencode && perm.res && !perm.res.destroyed) {
@@ -1411,13 +1475,13 @@ function cleanup() {
   if (typeof unsubscribeShortcuts === "function") {
     try { unsubscribeShortcuts(); } catch {}
   }
-  // Clean up all pending permission requests. Codex gets no-decision so its
-  // native approval flow can continue; Claude/CodeBuddy get explicit deny so
-  // they don't hang while the app is quitting.
+  // Clean up all pending permission requests. Codex/Antigravity/Pi get
+  // no-decision so their native approval flow can continue; Claude/CodeBuddy
+  // get explicit deny so they don't hang while the app is quitting.
   for (const perm of [...pendingPermissions]) {
     if (perm._delayTimer) clearTimeout(perm._delayTimer);
     if (perm.autoExpireTimer) clearTimeout(perm.autoExpireTimer);
-    if (perm.isCodex || perm.isPi) resolvePermissionEntry(perm, "no-decision", "Clawd is quitting");
+    if (perm.isCodex || perm.isAntigravity || perm.isPi) resolvePermissionEntry(perm, "no-decision", "Clawd is quitting");
     else resolvePermissionEntry(perm, "deny", "Clawd is quitting");
   }
 }
@@ -1453,5 +1517,7 @@ module.exports.__test = {
   shouldSuppressCodexNotifyBubble,
   sanitizeCodexPermissionDecision,
   buildCodexPermissionResponseBody,
+  sanitizeAntigravityPermissionDecision,
+  buildAntigravityPermissionResponseBody,
   buildElicitationUpdatedInput,
 };

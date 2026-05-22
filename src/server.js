@@ -134,6 +134,7 @@ const integrationSync = createIntegrationSyncRuntime({
 const {
   syncClawdHooks,
   syncGeminiHooks,
+  syncAntigravityHooks,
   syncCursorHooks,
   syncCodeBuddyHooks,
   syncKiroHooks,
@@ -254,6 +255,7 @@ return {
   clearRecentHookEvents,
   syncClawdHooks,
   syncGeminiHooks,
+  syncAntigravityHooks,
   syncCursorHooks,
   syncCodeBuddyHooks,
   syncKiroHooks,

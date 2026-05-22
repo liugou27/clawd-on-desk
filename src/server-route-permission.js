@@ -113,6 +113,11 @@ function sendPiPermissionNoDecision(res) {
   res.end();
 }
 
+function sendAntigravityPermissionNoDecision(res) {
+  res.writeHead(204, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+  res.end();
+}
+
 function startRemoteApproval(ctx, permEntry) {
   if (permEntry && permEntry.toolName === "ExitPlanMode") return;
   if (typeof ctx.maybeStartRemoteApproval !== "function") return;
@@ -283,6 +288,29 @@ function handlePermissionPost(req, res, options) {
           removePendingPermission(ctx, permEntry, "opencode-bubble-failed");
           ctx.replyOpencodePermission({ bridgeUrl, bridgeToken, requestId, reply: "reject", toolName });
         }
+        return;
+      }
+
+      // ── Antigravity CLI PreToolUse branch (state-only after D2 decision) ──
+      // Clawd intentionally does NOT show a permission bubble for agy. If a
+      // stray PreToolUse request arrives anyway (legacy hooks.json entry, user
+      // manually re-registered the hook, or auto-sync was skipped), respond
+      // with 204 so the hook prints `decision:"ask"` and agy's own 5-option
+      // native menu owns the decision. The downstream antigravity branches in
+      // permission.js / bubble-format.js are kept as intentional dead code so
+      // a future Path C restoration (e.g. if agy ships a final-allow protocol
+      // field) only needs to re-enable this entry point.
+      if (data.agent_id === "antigravity-cli") {
+        const toolName = typeof data.tool_name === "string" && data.tool_name ? data.tool_name : "Unknown";
+        if (ctx.doNotDisturb) {
+          recordRequestHookEvent.droppedByDnd();
+        } else if (typeof ctx.isAgentEnabled === "function" && !ctx.isAgentEnabled("antigravity-cli")) {
+          recordRequestHookEvent.droppedByDisabled();
+        } else {
+          recordRequestHookEvent.accepted();
+        }
+        ctx.permLog(`antigravity state-only -> ask fallback (tool=${toolName})`);
+        sendAntigravityPermissionNoDecision(res);
         return;
       }
 
@@ -665,5 +693,6 @@ module.exports = {
   shouldInterceptCodexPermission,
   sendCodexPermissionNoDecision,
   sendPiPermissionNoDecision,
+  sendAntigravityPermissionNoDecision,
   handlePermissionPost,
 };

@@ -3,7 +3,11 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
-const { shouldBypassCCBubble, shouldBypassOpencodeBubble, shouldBypassPiBubble } = require("../src/server").__test;
+const {
+  shouldBypassCCBubble,
+  shouldBypassOpencodeBubble,
+  shouldBypassPiBubble,
+} = require("../src/server").__test;
 
 function makeCtx({ enabled = true, hideBubbles = false, permissionBubblesEnabled = true } = {}) {
   return {
@@ -119,3 +123,7 @@ describe("shouldBypassPiBubble", () => {
     assert.deepStrictEqual(calls, ["pi"]);
   });
 });
+
+// D2: shouldBypassAntigravityBubble removed — antigravity is state-only,
+// no bubble path exists for the subgate to gate. Tests deleted with the
+// helper.
