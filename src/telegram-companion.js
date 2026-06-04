@@ -207,6 +207,7 @@ function createTelegramCompanion({
   getCompletionOutputMode = () => "full",
   getNotifyOnComplete = () => false,
   formatText = null,
+  onNotificationSent = null,
 } = {}) {
   const lastNotified = new Map(); // id -> last dedupe key
   let primed = false;
@@ -282,6 +283,15 @@ function createTelegramCompanion({
             safeLog("warn", "completion notification not delivered", {
               id: entry.id, errorClass: res.errorClass,
             });
+            return;
+          }
+          const messageId = res && res.messageId;
+          if (messageId != null && typeof onNotificationSent === "function") {
+            try { onNotificationSent({ entry, messageId }); } catch (err) {
+              safeLog("warn", "completion notification mapping callback failed", {
+                id: entry.id, error: err && err.message,
+              });
+            }
           }
         })
         .catch((err) => {

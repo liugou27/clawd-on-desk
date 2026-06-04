@@ -50,10 +50,20 @@ function makeCtx({ notificationHookEnabled = true } = {}) {
 describe("updateSession: Notification hook gate", () => {
   let api;
   let ctx;
+  let savedDebounceEnv;
+
+  beforeEach(() => {
+    // These tests exercise the Notification gate, not the #406 completion
+    // debounce — disable the debounce so a Claude Stop settles immediately.
+    savedDebounceEnv = process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "0";
+  });
 
   afterEach(() => {
     if (api) api.cleanup();
     mock.timers.reset();
+    if (savedDebounceEnv === undefined) delete process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    else process.env.CLAWD_COMPLETION_DEBOUNCE_MS = savedDebounceEnv;
   });
 
   it("mutes Notification bell + animation when the per-agent flag is off", () => {
@@ -87,6 +97,92 @@ describe("updateSession: Notification hook gate", () => {
     assert.ok(stateChanges.length >= 1, "notification state must be broadcast");
     assert.strictEqual(stateChanges[0][1], "notification");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "confirm sound must play");
+  });
+
+  it("mutes mini alert for post-completion idle Notification while keeping bookkeeping", () => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    ctx = makeCtx({ notificationHookEnabled: true });
+    ctx.miniMode = true;
+    api = require("../src/state")(ctx);
+
+    api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
+    assert.strictEqual(api.getCurrentState(), "mini-happy", "completion should still show mini-happy");
+
+    mock.timers.tick(defaultTheme.timings.autoReturn["mini-happy"] + 1);
+    assert.strictEqual(api.getCurrentState(), "mini-idle", "mini-happy should settle before the idle ping");
+    ctx._rendererEvents.length = 0;
+    ctx._soundsPlayed.length = 0;
+
+    api.updateSession("cc-1", "notification", "Notification", { agentId: "claude-code" });
+
+    const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
+    assert.ok(stateChanges.every(([, s]) => s !== "mini-alert"), "post-completion idle ping must not show mini-alert");
+    assert.deepStrictEqual(ctx._soundsPlayed, [], "post-completion idle ping must not play confirm");
+    assert.deepStrictEqual(
+      api.sessions.get("cc-1").recentEvents.map((entry) => entry.event),
+      ["Stop", "Notification"],
+      "Notification event should still be recorded"
+    );
+  });
+
+  it("keeps standalone mini Notification alerts enabled", () => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    ctx = makeCtx({ notificationHookEnabled: true });
+    ctx.miniMode = true;
+    api = require("../src/state")(ctx);
+
+    api.updateSession("cc-1", "notification", "Notification", { agentId: "claude-code" });
+
+    const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
+    assert.ok(stateChanges.length >= 1, "standalone mini notification should still broadcast");
+    assert.strictEqual(stateChanges[0][1], "mini-alert");
+    assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "standalone mini notification should still chime");
+  });
+
+  it("restores mini Notification alerts after user activity follows completion", () => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    ctx = makeCtx({ notificationHookEnabled: true });
+    ctx.miniMode = true;
+    api = require("../src/state")(ctx);
+
+    api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
+    mock.timers.tick(defaultTheme.timings.autoReturn["mini-happy"] + 1);
+    ctx._rendererEvents.length = 0;
+    ctx._soundsPlayed.length = 0;
+
+    api.updateSession("cc-1", "thinking", "UserPromptSubmit", { agentId: "claude-code" });
+    assert.strictEqual(
+      api.sessions.get("cc-1").awaitingInputSinceStop,
+      false,
+      "new user activity should clear the post-completion idle tail"
+    );
+    ctx._rendererEvents.length = 0;
+    ctx._soundsPlayed.length = 0;
+
+    api.updateSession("cc-1", "notification", "Notification", { agentId: "claude-code" });
+
+    const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
+    assert.ok(stateChanges.length >= 1, "notification after user activity should broadcast");
+    assert.strictEqual(stateChanges[0][1], "mini-alert");
+    assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "notification after user activity should chime");
+  });
+
+  it("keeps post-completion Notification alerts enabled outside mini mode", () => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    ctx = makeCtx({ notificationHookEnabled: true });
+    api = require("../src/state")(ctx);
+
+    api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
+    mock.timers.tick(defaultTheme.timings.autoReturn.attention + 1);
+    ctx._rendererEvents.length = 0;
+    ctx._soundsPlayed.length = 0;
+
+    api.updateSession("cc-1", "notification", "Notification", { agentId: "claude-code" });
+
+    const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
+    assert.ok(stateChanges.length >= 1, "normal-mode wait-for-input alert should still broadcast");
+    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "normal-mode wait-for-input alert should still chime");
   });
 
   it("mutes Gemini Notification bell + animation when the per-agent flag is off", () => {

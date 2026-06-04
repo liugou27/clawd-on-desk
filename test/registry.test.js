@@ -200,8 +200,8 @@ describe("Agent Registry", () => {
 
     const hermes = registry.getAgent("hermes");
     assert.strictEqual(hermes.capabilities.httpHook, false);
-    assert.strictEqual(hermes.capabilities.permissionApproval, false);
-    assert.strictEqual(hermes.capabilities.interactiveBubble, false);
+    assert.strictEqual(hermes.capabilities.permissionApproval, true);
+    assert.strictEqual(hermes.capabilities.interactiveBubble, true);
     assert.strictEqual(hermes.capabilities.sessionEnd, true);
     assert.strictEqual(hermes.capabilities.subagent, false);
 

@@ -88,6 +88,9 @@ function update(api, o = {}) {
       codexOriginator: o.codexOriginator ?? null,
       codexSource: o.codexSource ?? null,
       ghosttyTerminalId: o.ghosttyTerminalId ?? null,
+      backgroundTasksCount: o.backgroundTasksCount ?? 0,
+      sessionCronsCount: o.sessionCronsCount ?? 0,
+      stopHookActive: o.stopHookActive ?? false,
     },
   );
 }
@@ -1068,6 +1071,22 @@ describe("updateSession()", () => {
     assert.strictEqual(api.getCurrentState(), "idle");
   });
 
+  it("Codex transient PermissionRequest preserves focus without keeping a waiting tail", () => {
+    update(api, { id: "codex:native", state: "working", event: "PreToolUse", agentId: "codex" });
+
+    api.updateSession("codex:native", "notification", "PermissionRequest", {
+      agentId: "codex",
+      sourcePid: 456,
+      transientPermissionEvent: true,
+    });
+
+    const session = api.sessions.get("codex:native");
+    assert.strictEqual(session.state, "working");
+    assert.strictEqual(session.sourcePid, 456);
+    assert.strictEqual(session.recentEvents.at(-1).event, "PreToolUse");
+    assert.ok(!session.recentEvents.some((entry) => entry.event === "PermissionRequest"));
+  });
+
   it("stores one-shot visuals as idle while permission prompts preserve active work", () => {
     update(api, { id: "notify", state: "notification", event: "Notification", agentId: "claude-code" });
     assert.strictEqual(api.sessions.get("notify").state, "idle");
@@ -1101,6 +1120,83 @@ describe("updateSession()", () => {
 
     assert.strictEqual(api.sessions.get("codex:stale-permission").state, "idle");
     assert.strictEqual(api.getCurrentState(), "idle");
+  });
+
+  it("clearPermissionNotification removes a resolved PermissionRequest tail event", () => {
+    update(api, { id: "perm-active", state: "working", event: "PreToolUse", agentId: "codex" });
+    update(api, {
+      id: "perm-active",
+      state: "notification",
+      event: "PermissionRequest",
+      agentId: "codex",
+      sourcePid: 456,
+    });
+
+    assert.strictEqual(api.sessions.get("perm-active").recentEvents.at(-1).event, "PermissionRequest");
+
+    assert.strictEqual(api.clearPermissionNotification("perm-active"), true);
+
+    const session = api.sessions.get("perm-active");
+    assert.strictEqual(session.state, "working");
+    assert.strictEqual(session.recentEvents.at(-1).event, "PreToolUse");
+    assert.strictEqual(api.resolveDisplayState(), "working");
+  });
+
+  it("clearPermissionNotification restores Codex work state after stale idle downgrade", () => {
+    api.sessions.set("codex:stale-approved", rawSession("idle", {
+      agentId: "codex",
+      sourcePid: 456,
+      pidReachable: true,
+      recentEvents: [
+        { event: "PreToolUse", state: "working", at: Date.now() - 360000 },
+        { event: "PermissionRequest", state: "working", at: Date.now() - 350000 },
+      ],
+    }));
+
+    assert.strictEqual(api.clearPermissionNotification("codex:stale-approved"), true);
+
+    const session = api.sessions.get("codex:stale-approved");
+    assert.strictEqual(session.state, "working");
+    assert.strictEqual(session.recentEvents.at(-1).event, "PreToolUse");
+    assert.strictEqual(api.getCurrentState(), "working");
+  });
+
+  it("clearPermissionNotification keeps the tail while another permission is pending", () => {
+    api.sessions.set("codex:stacked", rawSession("working", {
+      agentId: "codex",
+      sourcePid: 456,
+      pidReachable: true,
+      recentEvents: [
+        { event: "PreToolUse", state: "working", at: Date.now() - 2000 },
+        { event: "PermissionRequest", state: "working", at: Date.now() - 1000 },
+      ],
+    }));
+
+    assert.strictEqual(
+      api.clearPermissionNotification("codex:stacked", { hasPendingForSession: true }),
+      false,
+    );
+
+    const session = api.sessions.get("codex:stacked");
+    assert.strictEqual(session.state, "working");
+    assert.strictEqual(session.recentEvents.at(-1).event, "PermissionRequest");
+  });
+
+  it("clearPermissionNotification also strips a resolved remote Codex tail", () => {
+    api.sessions.set("codex:remote-approved", rawSession("idle", {
+      agentId: "codex",
+      host: "ssh://devbox",
+      recentEvents: [
+        { event: "PreToolUse", state: "working", at: Date.now() - 360000 },
+        { event: "PermissionRequest", state: "working", at: Date.now() - 350000 },
+      ],
+    }));
+
+    assert.strictEqual(api.clearPermissionNotification("codex:remote-approved"), true);
+
+    const session = api.sessions.get("codex:remote-approved");
+    assert.strictEqual(session.state, "working");
+    assert.strictEqual(session.recentEvents.at(-1).event, "PreToolUse");
   });
 
   it("SessionEnd + sweeping → plays sweeping even with other active sessions", () => {
@@ -1271,6 +1367,8 @@ describe("updateSession()", () => {
     update(api, { id: "s1", state: "working" });
     mock.timers.tick(1000); // past MIN_DISPLAY_MS.working
     update(api, { id: "s1", state: "attention", event: "Stop" });
+    // Debounce is opt-in (default 0), so a Claude Stop celebrates immediately
+    // and the one-shot attention is stored as idle.
     assert.strictEqual(api.sessions.get("s1").state, "idle");
     assert.strictEqual(api.getCurrentState(), "attention");
   });
@@ -1943,6 +2041,153 @@ describe("emitSessionSnapshot diff", () => {
   });
 });
 
+describe("Stop completion gate (#406)", () => {
+  let api, ctx, soundsPlayed, stateChanges, savedDebounceEnv;
+
+  beforeEach(() => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    // The product default is now 0 (opt-in); this describe exercises the
+    // debounce, so turn it on explicitly.
+    savedDebounceEnv = process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "1000";
+    soundsPlayed = [];
+    stateChanges = [];
+    ctx = makeCtx({
+      processKill: () => true,
+      playSound: (name) => soundsPlayed.push(name),
+      sendToRenderer: (channel, ...args) => {
+        if (channel === "state-change") stateChanges.push(args[0]);
+      },
+    });
+    api = require("../src/state")(ctx);
+  });
+  afterEach(() => {
+    api.cleanup();
+    mock.timers.reset();
+    if (savedDebounceEnv === undefined) delete process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    else process.env.CLAWD_COMPLETION_DEBOUNCE_MS = savedDebounceEnv;
+  });
+
+  it("live background_tasks hold the Claude Stop as working — no celebrate, badge stays running", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop", backgroundTasksCount: 2 });
+    assert.strictEqual(api.sessions.get("s1").state, "working");
+    assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "running");
+    mock.timers.tick(5000); // no debounce scheduled for liveWork — nothing promotes
+    assert.strictEqual(api.sessions.get("s1").state, "working");
+    assert.ok(!soundsPlayed.includes("complete"), "completion sound must not play");
+  });
+
+  it("session_crons hold the Claude Stop as working", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop", sessionCronsCount: 1 });
+    assert.strictEqual(api.sessions.get("s1").state, "working");
+    assert.ok(!soundsPlayed.includes("complete"));
+  });
+
+  it("stop_hook_active (continuation) holds the Claude Stop as working", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop", stopHookActive: true });
+    assert.strictEqual(api.sessions.get("s1").state, "working");
+    assert.ok(!soundsPlayed.includes("complete"));
+  });
+
+  it("debounce: a Stop followed by PreToolUse within the window never celebrates", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop" });
+    assert.strictEqual(api.sessions.get("s1").state, "working", "held working during the window");
+    mock.timers.tick(500); // still within the 1000ms window
+    update(api, { id: "s1", state: "working", event: "PreToolUse" });
+    mock.timers.tick(2000); // past the original window
+    assert.strictEqual(api.sessions.get("s1").state, "working");
+    assert.ok(!soundsPlayed.includes("complete"), "a vetoed/continued Stop must not celebrate");
+  });
+
+  it("debounce: a quiet Stop celebrates after the window and marks the session done", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop" });
+    assert.deepStrictEqual(soundsPlayed, [], "no celebration before the window elapses");
+    mock.timers.tick(1000); // window elapses with no forward progress
+    assert.strictEqual(api.sessions.get("s1").state, "idle");
+    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.ok(soundsPlayed.includes("complete"), "a real completion celebrates");
+    assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
+  });
+
+  it("does not debounce non-Claude agents — a Codex Stop celebrates immediately", () => {
+    update(api, { id: "cx", state: "attention", event: "Stop", agentId: "codex" });
+    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.ok(soundsPlayed.includes("complete"));
+  });
+
+  it("CLAWD_COMPLETION_DEBOUNCE_MS=0 disables the debounce (immediate celebration)", () => {
+    const saved = process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "0";
+    try {
+      update(api, { id: "s1", state: "attention", event: "Stop" });
+      assert.strictEqual(api.getCurrentState(), "attention");
+      assert.ok(soundsPlayed.includes("complete"));
+    } finally {
+      if (saved === undefined) delete process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+      else process.env.CLAWD_COMPLETION_DEBOUNCE_MS = saved;
+    }
+  });
+
+  it("Stop then Notification within the window still records completion (badge done) (#406 regression)", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop" });
+    assert.strictEqual(api.sessions.get("s1").state, "working", "held during the window");
+    mock.timers.tick(400); // within the 1000ms window
+    update(api, { id: "s1", state: "notification", event: "Notification" }); // wait-for-input ping
+    mock.timers.tick(5000); // window elapses → promote replays the Stop
+    const s = api.sessions.get("s1");
+    assert.strictEqual(s.state, "idle");
+    // The Notification no longer buries the Stop tail: badge → done, so the HUD
+    // and the Telegram completion still fire. (The celebration is visual-only
+    // and intentionally yields to the wait-for-input visual by priority.)
+    assert.strictEqual(api.deriveSessionBadge(s), "done");
+  });
+
+  it("liveWork-held Stop does not become a false 'done' after stale cleanup (#406 regression)", () => {
+    update(api, { id: "s1", state: "attention", event: "Stop", backgroundTasksCount: 1, agentPid: 1000, sourcePid: 2000 });
+    const held = api.sessions.get("s1");
+    assert.strictEqual(held.state, "working");
+    assert.strictEqual(api.deriveSessionBadge(held), "running");
+    mock.timers.tick(310000); // age the session past WORKING_STALE_MS
+    api.cleanStaleSessions();
+    const after = api.sessions.get("s1");
+    assert.ok(after, "stale working downgrades, not deletes (pids alive)");
+    assert.strictEqual(after.state, "idle");
+    assert.strictEqual(api.deriveSessionBadge(after), "idle", "a held Stop must NOT resurface as done after stale cleanup");
+  });
+
+  it("mini mode: a debounced Stop promotes to mini-happy after the window", () => {
+    ctx.miniMode = true;
+    api = require("../src/state")(ctx);
+    update(api, { id: "s1", state: "attention", event: "Stop" });
+    stateChanges.length = 0;
+    soundsPlayed.length = 0;
+    mock.timers.tick(1000); // quiet window elapses → celebrate
+    assert.ok(stateChanges.includes("mini-happy"), "mini completion celebration must fire");
+    assert.ok(soundsPlayed.includes("complete"), "completion sound must play in mini mode");
+  });
+
+  it("promoteCompletion does not swallow another session's queued high-priority visual (#406 regression)", () => {
+    // Short debounce so A promotes WHILE B's queued error is still pending behind
+    // the held "working" min-display (1000ms in the clawd theme).
+    const saved = process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+    process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "100";
+    try {
+      update(api, { id: "A", state: "attention", event: "Stop" }); // held working at t0 (min-display 1000)
+      update(api, { id: "B", state: "error", event: "StopFailure" }); // error(8) queues behind working's min-display
+      stateChanges.length = 0;
+      mock.timers.tick(1200); // A promotes at t=100; B's error must still apply at t=1000
+      assert.ok(
+        stateChanges.includes("error"),
+        "A's completion must not clear the global pending queue and drop B's error"
+      );
+      assert.strictEqual(api.deriveSessionBadge(api.sessions.get("A")), "done", "A still completes");
+    } finally {
+      if (saved === undefined) delete process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
+      else process.env.CLAWD_COMPLETION_DEBOUNCE_MS = saved;
+    }
+  });
+});
+
 describe("deriveSessionBadge", () => {
   let api;
   beforeEach(() => { api = require("../src/state")(makeCtx()); });
@@ -1978,9 +2223,9 @@ describe("deriveSessionBadge", () => {
     assert.strictEqual(api.deriveSessionBadge(s), "done");
   });
 
-  it("returns 'done' when idle with PostCompact in recentEvents", () => {
+  it("returns 'idle' for PostCompact in recentEvents (compaction is not completion, #406)", () => {
     const s = { state: "idle", recentEvents: [{ event: "PostCompact" }] };
-    assert.strictEqual(api.deriveSessionBadge(s), "done");
+    assert.strictEqual(api.deriveSessionBadge(s), "idle");
   });
 
   it("returns 'idle' when idle with Gemini AfterAgent in recentEvents", () => {

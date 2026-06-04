@@ -1358,6 +1358,7 @@ describe("settings renderer browser environment", () => {
         targetSessionKey: "telegram:123456789",
         notifyOnComplete: false,
         completionOutputMode: "full",
+        r3DirectSendEnabled: false,
       },
     }]);
     assert.ok(
@@ -1376,6 +1377,7 @@ describe("settings renderer browser environment", () => {
           targetSessionKey: "telegram:123456789",
           notifyOnComplete: true,
           completionOutputMode: "off",
+          r3DirectSendEnabled: true,
         },
       },
       settingsAPI: {
@@ -1418,6 +1420,7 @@ describe("settings renderer browser environment", () => {
         targetSessionKey: "987654321",
         notifyOnComplete: true,
         completionOutputMode: "off",
+        r3DirectSendEnabled: true,
       },
     }]);
   });
@@ -1469,6 +1472,7 @@ describe("settings renderer browser environment", () => {
         targetSessionKey: "telegram:123456789",
         notifyOnComplete: false,
         completionOutputMode: "full",
+        r3DirectSendEnabled: false,
       },
     }]);
     // …and turning OFF must ALSO stop the native transport, otherwise the poller
@@ -1538,8 +1542,79 @@ describe("settings renderer browser environment", () => {
         targetSessionKey: "telegram:123456789",
         notifyOnComplete: true,
         completionOutputMode: "full",
+        r3DirectSendEnabled: false,
       },
     }]);
+  });
+
+  it("toggles Telegram Direct Send paste-only mode without changing the approval transport", async () => {
+    const commandCalls = [];
+    const harness = loadTelegramApprovalTabForTest({
+      snapshot: {
+        tgApproval: {
+          enabled: false,
+          allowedTgUserId: "123456789",
+          targetSessionKey: "telegram:123456789",
+          notifyOnComplete: false,
+          completionOutputMode: "full",
+          r3DirectSendEnabled: false,
+        },
+      },
+      settingsAPI: {
+        command: (name, payload) => {
+          commandCalls.push({ name, payload });
+          if (name === "telegramMigration.snapshot") {
+            return Promise.resolve({
+              status: "ok",
+              snapshot: {
+                state: "NATIVE_ACTIVE",
+                transport: "native",
+                ownerSnapshot: { nativePolling: true },
+              },
+            });
+          }
+          if (name === "telegramApproval.status") {
+            return Promise.resolve({
+              status: "ok",
+              state: {
+                status: "running",
+                transport: "native",
+                configured: true,
+                tokenStored: true,
+              },
+            });
+          }
+          if (name === "telegramApproval.tokenInfo") {
+            return Promise.resolve({ status: "ok", configured: true, masked: "1234……wXyZ" });
+          }
+          return Promise.resolve({ status: "ok" });
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    harness.render();
+
+    const sw = harness.content.querySelector(".tg-approval-direct-send-row .switch");
+    assert.equal(sw.getAttribute("aria-checked"), "false");
+    sw.dispatchEvent({ type: "click" });
+
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(harness.updates)), [{
+      key: "tgApproval",
+      value: {
+        enabled: false,
+        allowedTgUserId: "123456789",
+        targetSessionKey: "telegram:123456789",
+        notifyOnComplete: false,
+        completionOutputMode: "full",
+        r3DirectSendEnabled: true,
+      },
+    }]);
+    assert.equal(
+      commandCalls.some((c) => c.name === "telegramMigration.dispatch"),
+      false,
+      "direct-send toggle should not start or stop the Telegram transport",
+    );
   });
 
   it("shows native-active Telegram approval as enabled even when the legacy flag is false", async () => {

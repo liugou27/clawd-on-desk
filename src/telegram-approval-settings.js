@@ -14,6 +14,9 @@ const DEFAULT_TG_APPROVAL = Object.freeze({
   // extractor has no text and notifyOnComplete is false, no bare fallback ping
   // is sent.
   completionOutputMode: "full",
+  // R3 dogfood gate. Slice 1/2/3a only focuses the selected local terminal;
+  // it does not paste text or press Enter.
+  r3DirectSendEnabled: false,
 });
 
 const BOT_TOKEN_RE = /^\d+:[A-Za-z0-9_-]{30,}$/;
@@ -64,10 +67,12 @@ function normalizeTelegramApproval(value, defaultsValue = DEFAULT_TG_APPROVAL) {
     targetSessionKey: normalizeTelegramSessionKey(defaults.targetSessionKey),
     notifyOnComplete: defaults.notifyOnComplete === true,
     completionOutputMode: normalizeCompletionOutputMode(defaults.completionOutputMode),
+    r3DirectSendEnabled: defaults.r3DirectSendEnabled === true,
   };
   if (!isPlainObject(value)) return out;
   if (typeof value.enabled === "boolean") out.enabled = value.enabled;
   if (typeof value.notifyOnComplete === "boolean") out.notifyOnComplete = value.notifyOnComplete;
+  if (typeof value.r3DirectSendEnabled === "boolean") out.r3DirectSendEnabled = value.r3DirectSendEnabled;
   if (typeof value.completionOutputMode === "string") {
     out.completionOutputMode = normalizeCompletionOutputMode(value.completionOutputMode, out.completionOutputMode);
   }
@@ -87,7 +92,8 @@ function validateTelegramApproval(value) {
   }
   for (const key of Object.keys(value)) {
     if (key !== "enabled" && key !== "allowedTgUserId" && key !== "targetSessionKey"
-      && key !== "notifyOnComplete" && key !== "completionOutputMode") {
+      && key !== "notifyOnComplete" && key !== "completionOutputMode"
+      && key !== "r3DirectSendEnabled") {
       return { status: "error", message: `tgApproval.${key} is not supported` };
     }
   }
@@ -96,6 +102,9 @@ function validateTelegramApproval(value) {
   }
   if (value.notifyOnComplete !== undefined && typeof value.notifyOnComplete !== "boolean") {
     return { status: "error", message: "tgApproval.notifyOnComplete must be a boolean" };
+  }
+  if (value.r3DirectSendEnabled !== undefined && typeof value.r3DirectSendEnabled !== "boolean") {
+    return { status: "error", message: "tgApproval.r3DirectSendEnabled must be a boolean" };
   }
   if (
     value.completionOutputMode !== undefined

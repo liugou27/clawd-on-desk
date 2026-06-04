@@ -502,7 +502,7 @@ test("sendNotification posts a plain message with no inline keyboard", async () 
   server.enqueueOk("sendMessage", { message_id: 7 });
 
   const res = await runner.sendNotification("done: task X");
-  assert.deepEqual(res, { ok: true });
+  assert.deepEqual(res, { ok: true, messageId: 7 });
   const send = server.calls.find((c) => c.method === "sendMessage");
   assert.equal(send.payload.chat_id, "123");
   assert.equal(send.payload.text, "done: task X");
@@ -542,7 +542,7 @@ test("sendNotification retries once on 429 then succeeds", async () => {
   server.enqueueOk("sendMessage", { message_id: 9 });
 
   const res = await runner.sendNotification("retry me");
-  assert.deepEqual(res, { ok: true });
+  assert.deepEqual(res, { ok: true, messageId: 9 });
   assert.deepEqual(slept, [2000], "honours retry_after seconds");
   assert.equal(server.calls.filter((c) => c.method === "sendMessage").length, 2);
   await runner.stop();
@@ -739,6 +739,220 @@ test("native runner ignores /status while command handling is disabled", async (
   await tick();
 
   assert.equal(commandCount, 0);
+  assert.equal(server.calls.some((call) => call.method === "sendMessage"), false);
+  await runner.stop();
+});
+
+// ── R3 direct-send text intake ─────────────────────────────────────────────
+
+test("native runner routes allowed non-command text replies to the text handler", async () => {
+  const server = createFakeTelegramServer();
+  let releaseFirstPoll;
+  let runner;
+  const textMessages = [];
+
+  server.enqueue("getUpdates", () => new Promise((resolve) => { releaseFirstPoll = resolve; }));
+  server.enqueue("getUpdates", () => ({
+    ok: true,
+    result: [{
+      update_id: 1,
+      message: {
+        message_id: 10,
+        text: "continue from phone",
+        from: { id: 777 },
+        chat: { id: 123 },
+        reply_to_message: {
+          message_id: 44,
+          from: { id: 999 }, // bot/self; auth must use outer message.from
+        },
+      },
+    }],
+  }));
+  server.enqueue("sendMessage", (payload) => {
+    assert.equal(payload.chat_id, "123");
+    assert.equal(payload.text, "focused only");
+    assert.equal(payload.reply_markup, undefined);
+    return { ok: true, result: { message_id: 11 } };
+  });
+
+  runner = createTelegramNativeRunner({
+    tokenStore: tokenStore(),
+    transport: server.transport,
+    getDispatch: () => async () => {},
+    getChatId: () => "123",
+    getAllowedUserId: () => "777",
+    onCommand: () => { throw new Error("must not route text to command handler"); },
+    onTextMessage: (payload) => {
+      textMessages.push(payload);
+      runner.stop();
+      return { text: "focused only" };
+    },
+  });
+
+  await runner.start();
+  await tick();
+  releaseFirstPoll({ ok: true, result: [] });
+  await tick();
+  await tick();
+  await tick();
+
+  assert.deepEqual(textMessages, [{
+    text: "continue from phone",
+    messageId: 10,
+    replyToMessageId: 44,
+    fromId: "777",
+    chatId: "123",
+  }]);
+  assert.equal(server.calls.filter((call) => call.method === "sendMessage").length, 1);
+  await runner.stop();
+});
+
+test("native runner ignores non-command text from the wrong Telegram user or chat", async () => {
+  const server = createFakeTelegramServer();
+  let releaseFirstPoll;
+  let textCount = 0;
+  server.enqueue("getUpdates", () => new Promise((resolve) => { releaseFirstPoll = resolve; }));
+  server.enqueue("getUpdates", () => ({
+    ok: true,
+    result: [
+      {
+        update_id: 1,
+        message: {
+          text: "continue",
+          from: { id: 999 },
+          chat: { id: 123 },
+        },
+      },
+      {
+        update_id: 2,
+        message: {
+          text: "continue",
+          from: { id: 777 },
+          chat: { id: 456 },
+        },
+      },
+    ],
+  }));
+  server.enqueue("getUpdates", () => new Promise(() => {}));
+
+  const runner = createTelegramNativeRunner({
+    tokenStore: tokenStore(),
+    transport: server.transport,
+    getDispatch: () => async () => {},
+    getChatId: () => "123",
+    getAllowedUserId: () => "777",
+    onTextMessage: () => {
+      textCount += 1;
+      return "should not send";
+    },
+  });
+
+  await runner.start();
+  await tick();
+  releaseFirstPoll({ ok: true, result: [] });
+  await tick();
+  await tick();
+
+  assert.equal(textCount, 0);
+  assert.equal(server.calls.some((call) => call.method === "sendMessage"), false);
+  await runner.stop();
+});
+
+test("native runner keeps slash commands out of direct-send text handling", async () => {
+  const server = createFakeTelegramServer();
+  let releaseFirstPoll;
+  let textCount = 0;
+  server.enqueue("getUpdates", () => new Promise((resolve) => { releaseFirstPoll = resolve; }));
+  server.enqueue("getUpdates", () => ({
+    ok: true,
+    result: [
+      {
+        update_id: 1,
+        message: {
+          text: "/status",
+          from: { id: 777 },
+          chat: { id: 123 },
+        },
+      },
+      {
+        update_id: 2,
+        message: {
+          text: "/unknown hello",
+          from: { id: 777 },
+          chat: { id: 123 },
+        },
+      },
+    ],
+  }));
+  server.enqueue("sendMessage", (payload) => {
+    assert.equal(payload.text, "status ok");
+    return { ok: true, result: { message_id: 11 } };
+  });
+  server.enqueue("getUpdates", () => new Promise(() => {}));
+
+  const runner = createTelegramNativeRunner({
+    tokenStore: tokenStore(),
+    transport: server.transport,
+    getDispatch: () => async () => {},
+    getChatId: () => "123",
+    getAllowedUserId: () => "777",
+    onCommand: () => "status ok",
+    onTextMessage: () => {
+      textCount += 1;
+      return "should not send";
+    },
+  });
+
+  await runner.start();
+  await tick();
+  releaseFirstPoll({ ok: true, result: [] });
+  await tick();
+  await tick();
+  await tick();
+
+  assert.equal(textCount, 0);
+  assert.equal(server.calls.filter((call) => call.method === "sendMessage").length, 1);
+  await runner.stop();
+});
+
+test("native runner suppresses text handling while direct-send text is disabled", async () => {
+  const server = createFakeTelegramServer();
+  let releaseFirstPoll;
+  let textCount = 0;
+  server.enqueue("getUpdates", () => new Promise((resolve) => { releaseFirstPoll = resolve; }));
+  server.enqueue("getUpdates", () => ({
+    ok: true,
+    result: [{
+      update_id: 1,
+      message: {
+        text: "continue",
+        from: { id: 777 },
+        chat: { id: 123 },
+      },
+    }],
+  }));
+  server.enqueue("getUpdates", () => new Promise(() => {}));
+
+  const runner = createTelegramNativeRunner({
+    tokenStore: tokenStore(),
+    transport: server.transport,
+    getDispatch: () => async () => {},
+    getChatId: () => "123",
+    getAllowedUserId: () => "777",
+    isTextMessageEnabled: () => false,
+    onTextMessage: () => {
+      textCount += 1;
+      return "should not send";
+    },
+  });
+
+  await runner.start();
+  await tick();
+  releaseFirstPoll({ ok: true, result: [] });
+  await tick();
+  await tick();
+
+  assert.equal(textCount, 0);
   assert.equal(server.calls.some((call) => call.method === "sendMessage"), false);
   await runner.stop();
 });

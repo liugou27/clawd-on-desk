@@ -7,7 +7,9 @@ const {
   SESSION_STALE_MS,
   WORKING_STALE_MS,
   DETACHED_IDLE_STALE_MS,
+  CODEX_LOCAL_WORKING_STALE_FLOOR_MS,
   isWorkingLikeState,
+  isLocalCodexWorkingLikeSession,
   getStaleSessionDecision,
 } = require("../src/state-stale-cleanup");
 
@@ -131,6 +133,15 @@ describe("state stale cleanup decisions", () => {
     assert.strictEqual(isWorkingLikeState("thinking"), true);
     assert.strictEqual(isWorkingLikeState("juggling"), true);
     assert.strictEqual(isWorkingLikeState("idle"), false);
+    assert.strictEqual(isLocalCodexWorkingLikeSession(session({
+      state: "working",
+      agentId: "codex",
+    })), true);
+    assert.strictEqual(isLocalCodexWorkingLikeSession(session({
+      state: "working",
+      agentId: "codex",
+      host: "ssh:example.com",
+    })), false);
   });
 
   it("falls back to module defaults when no staleConfig provided", () => {
@@ -175,6 +186,44 @@ describe("state stale cleanup decisions", () => {
       staleConfig: { workingStaleMs: 600_000 },
     });
     assert.deepStrictEqual(result, { action: null });
+  });
+
+  it("keeps local Codex working through the default short stale windows", () => {
+    const { result } = decision(session({
+      state: "working",
+      agentId: "codex",
+      updatedAt: 1000000 - 11 * 60 * 1000,
+      agentPid: 10,
+      sourcePid: 20,
+    }), {
+      alivePids: new Set([10, 20]),
+    });
+    assert.deepStrictEqual(result, { action: null });
+  });
+
+  it("still downgrades local Codex working after the Codex floor expires", () => {
+    const { result } = decision(session({
+      state: "thinking",
+      agentId: "codex",
+      updatedAt: 2000000 - CODEX_LOCAL_WORKING_STALE_FLOOR_MS - 1,
+      agentPid: 10,
+      sourcePid: 20,
+    }), {
+      now: 2000000,
+      alivePids: new Set([10, 20]),
+    });
+    assert.deepStrictEqual(result, { action: "idle", reason: "session-timeout", updateTimestamp: false });
+  });
+
+  it("does not extend remote Codex working sessions", () => {
+    const { result } = decision(session({
+      state: "working",
+      agentId: "codex",
+      host: "ssh:example.com",
+      updatedAt: 1000000 - WORKING_STALE_MS - 1,
+      sourcePid: null,
+    }));
+    assert.deepStrictEqual(result, { action: "idle", reason: "working-timeout", updateTimestamp: true });
   });
 
   it("honors a configured detachedIdleStaleMs cutoff", () => {

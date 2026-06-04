@@ -86,6 +86,53 @@ test("notifies a fresh completion after priming", async () => {
   assert.match(sent[0], /done/);
 });
 
+test("registers completion notification message ids after successful sends", async () => {
+  const registrations = [];
+  const sink = {
+    sent: [],
+    client: {
+      sendNotification: async (text) => {
+        sink.sent.push(text);
+        return { ok: true, messageId: 4242 };
+      },
+    },
+  };
+  const comp = createTelegramCompanion({
+    getClient: () => sink.client,
+    isEnabled: () => true,
+    getNotifyOnComplete: () => true,
+    onNotificationSent: (payload) => registrations.push({
+      messageId: payload.messageId,
+      sessionId: payload.entry && payload.entry.id,
+    }),
+  });
+
+  comp.onSnapshot({ sessions: [] });
+  comp.onSnapshot({ sessions: [doneEntry({ id: "sess-for-map" })] });
+  await tick();
+
+  assert.equal(sink.sent.length, 1);
+  assert.deepEqual(registrations, [{ messageId: 4242, sessionId: "sess-for-map" }]);
+});
+
+test("does not register direct-send mapping when notification delivery fails", async () => {
+  const registrations = [];
+  const comp = createTelegramCompanion({
+    getClient: () => ({
+      sendNotification: async () => ({ ok: false, errorClass: "403" }),
+    }),
+    isEnabled: () => true,
+    getNotifyOnComplete: () => true,
+    onNotificationSent: (payload) => registrations.push(payload),
+  });
+
+  comp.onSnapshot({ sessions: [] });
+  comp.onSnapshot({ sessions: [doneEntry()] });
+  await tick();
+
+  assert.deepEqual(registrations, []);
+});
+
 test("dedupes repeated broadcasts of the same completion", async () => {
   const { comp, sent } = makeCompanion({ getNotifyOnComplete: () => true });
   comp.onSnapshot({ sessions: [] });

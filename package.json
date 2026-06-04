@@ -133,11 +133,13 @@
       "assets/icons/agents/**/*",
       "assets/svg/**/*",
       "assets/sounds/**/*",
+      "assets/dock-icon.png",
       "assets/tray-icon*.png",
       "hooks/**/*",
       "extensions/**/*",
       "agents/**/*",
-      "themes/**/*"
+      "themes/**/*",
+      "pwa/**/*"
     ],
     "asarUnpack": [
       "assets/svg/**/*",
@@ -170,6 +172,7 @@
   "dependencies": {
     "electron-updater": "^6.8.3",
     "htmlparser2": "^12.0.0",
-    "koffi": "^2.15.2"
+    "koffi": "^2.15.2",
+    "ws": "^8.21.0"
   }
 }

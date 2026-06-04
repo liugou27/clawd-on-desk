@@ -40,6 +40,7 @@
       completionOutputMode: !cfg || cfg.completionOutputMode === undefined || cfg.completionOutputMode === "full"
         ? "full"
         : (cfg.completionOutputMode === "tail" ? "full" : "off"),
+      r3DirectSendEnabled: !!(cfg && cfg.r3DirectSendEnabled === true),
     };
   }
 
@@ -678,6 +679,7 @@
         targetSessionKey: raw,
         notifyOnComplete: currentConfig().notifyOnComplete,
         completionOutputMode: currentConfig().completionOutputMode,
+        r3DirectSendEnabled: currentConfig().r3DirectSendEnabled,
       });
     });
 
@@ -702,6 +704,7 @@
     }
     rows.push(buildEnabledRow({ ready }));
     rows.push(buildCompletionOutputRow());
+    rows.push(buildDirectSendRow({ ready }));
     rows.push(buildTestRow({ ready }));
     return helpers.buildSection(t("telegramApprovalStep3Title"), rows);
   }
@@ -780,6 +783,52 @@
           migrationDispatch("USER_TEST_NATIVE");
           return;
         }
+      };
+      sw.addEventListener("click", toggle);
+      sw.addEventListener("keydown", (ev) => {
+        if (ev.key === " " || ev.key === "Enter") {
+          ev.preventDefault();
+          toggle();
+        }
+      });
+    }
+    ctrl.appendChild(sw);
+    row.appendChild(ctrl);
+    return row;
+  }
+
+  function buildDirectSendRow({ ready }) {
+    const cfg = currentConfig();
+    const row = document.createElement("div");
+    row.className = "row tg-approval-direct-send-row";
+    if (!ready) row.classList.add("tg-approval-row-disabled");
+
+    const text = document.createElement("div");
+    text.className = "row-text";
+    const label = document.createElement("span");
+    label.className = "row-label";
+    label.textContent = t("telegramApprovalDirectSend");
+    const desc = document.createElement("span");
+    desc.className = "row-desc";
+    desc.textContent = t("telegramApprovalDirectSendDesc");
+    text.appendChild(label);
+    text.appendChild(desc);
+    row.appendChild(text);
+
+    const ctrl = document.createElement("div");
+    ctrl.className = "row-control";
+    const sw = document.createElement("div");
+    sw.className = "switch";
+    sw.setAttribute("role", "switch");
+    sw.setAttribute("tabindex", "0");
+    helpers.setSwitchVisual(sw, cfg.r3DirectSendEnabled === true, { pending: view.configPending });
+    if (!ready || view.configPending) {
+      sw.classList.add("disabled");
+      sw.setAttribute("aria-disabled", "true");
+      sw.removeAttribute("tabindex");
+    } else {
+      const toggle = () => {
+        saveConfig({ ...cfg, r3DirectSendEnabled: cfg.r3DirectSendEnabled !== true }, { resetDraft: false });
       };
       sw.addEventListener("click", toggle);
       sw.addEventListener("keydown", (ev) => {

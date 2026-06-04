@@ -229,6 +229,7 @@ describe("updateRegistry pure-data validators", () => {
       allowedTgUserId: "123456789",
       targetSessionKey: "telegram:987654321",
       completionOutputMode: "full",
+      r3DirectSendEnabled: true,
     }, deps).status, "ok");
     assert.strictEqual(updateRegistry.tgApproval({
       enabled: true,

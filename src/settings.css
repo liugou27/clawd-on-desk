@@ -3513,3 +3513,60 @@ html, body {
 .row-desc a:hover {
   opacity: 0.8;
 }
+
+/* === Mobile Tab === */
+.mobile-info-loading {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 20px 0;
+}
+.mobile-info-error {
+  color: var(--red);
+  font-size: 13px;
+  padding: 10px 0;
+}
+.mobile-conn-details {
+  margin-top: 8px;
+}
+.mobile-conn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mobile-conn-row:last-of-type { border-bottom: none; }
+.mobile-conn-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  width: 60px;
+  flex-shrink: 0;
+}
+.mobile-conn-value {
+  font-size: 13px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-token {
+  letter-spacing: 0.5px;
+}
+.mobile-pair-url {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.mobile-copy-btn {
+  font-size: 11px;
+  background: var(--sidebar-hover);
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.mobile-copy-btn:hover { background: var(--accent); color: #fff; }

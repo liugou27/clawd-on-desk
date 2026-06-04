@@ -104,6 +104,13 @@ function normalizeApprovalDecision(decision) {
   return null;
 }
 
+function extractTelegramMessageId(result) {
+  const id = result && result.message_id;
+  if (typeof id === "number" && Number.isInteger(id) && id > 0) return id;
+  if (typeof id === "string" && /^\d+$/.test(id.trim())) return id.trim();
+  return null;
+}
+
 function createTelegramNativeRunner({
   tokenStore,
   transport,
@@ -112,6 +119,8 @@ function createTelegramNativeRunner({
   getAllowedUserId,   // () => "<user id>"
   onCommand = null,   // async ({ command, args, chatId, fromId }) => text | { text }
   isCommandEnabled = () => true,
+  onTextMessage = null, // async ({ text, messageId, replyToMessageId, chatId, fromId }) => text | { text }
+  isTextMessageEnabled = () => true,
   log = () => {},
   longPollTimeoutMs = 25, // Telegram seconds
   approvalTimeoutMs = DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -283,40 +292,78 @@ function createTelegramNativeRunner({
     };
   }
 
-  async function handleMessage(message) {
-    if (!message || typeof onCommand !== "function") return false;
-    const parsed = parseMessageCommand(message.text);
-    if (!parsed || parsed.command !== "status") return false;
-    if (typeof isCommandEnabled === "function" && !isCommandEnabled()) return true;
+  function getAuthorizedMessageContext(message) {
     const fromId = message.from && String(message.from.id);
     const chatId = message.chat && String(message.chat.id);
     const allowedUser = getAllowedUserId();
     const targetChat = getChatId();
-    if (!allowedUser || fromId !== String(allowedUser)) return true;
-    if (!targetChat || chatId !== String(targetChat)) return true;
-    let response;
-    try {
-      response = await onCommand({
-        ...parsed,
-        fromId,
-        chatId,
-      });
-    } catch (err) {
-      log("warn", "native command failed", { error: err && err.message });
-      noteError("command", "handler_error");
-      return true;
-    }
-    const text = typeof response === "string"
+    if (!allowedUser || fromId !== String(allowedUser)) return null;
+    if (!targetChat || chatId !== String(targetChat)) return null;
+    return { fromId, chatId };
+  }
+
+  function responseText(response) {
+    return typeof response === "string"
       ? response
       : (response && typeof response.text === "string" ? response.text : "");
-    if (!text) return true;
+  }
+
+  async function replyToMessage(chatId, response, scope) {
+    const text = responseText(response);
+    if (!text) return;
     try {
       await sendBoundedMessage(chatId, text);
     } catch (err) {
       const cls = classifyError(err);
-      noteError("command", cls);
-      log("warn", "native command reply failed", { errorClass: cls });
+      noteError(scope, cls);
+      log("warn", `native ${scope} reply failed`, { errorClass: cls });
     }
+  }
+
+  async function handleMessage(message) {
+    if (!message) return false;
+    const text = typeof message.text === "string" ? message.text : "";
+    const parsed = parseMessageCommand(text);
+    if (parsed) {
+      if (parsed.command !== "status" || typeof onCommand !== "function") return false;
+      if (typeof isCommandEnabled === "function" && !isCommandEnabled()) return true;
+      const auth = getAuthorizedMessageContext(message);
+      if (!auth) return true;
+      let response;
+      try {
+        response = await onCommand({
+          ...parsed,
+          fromId: auth.fromId,
+          chatId: auth.chatId,
+        });
+      } catch (err) {
+        log("warn", "native command failed", { error: err && err.message });
+        noteError("command", "handler_error");
+        return true;
+      }
+      await replyToMessage(auth.chatId, response, "command");
+      return true;
+    }
+
+    if (typeof onTextMessage !== "function" || !text.trim()) return false;
+    if (typeof isTextMessageEnabled === "function" && !isTextMessageEnabled()) return true;
+    const auth = getAuthorizedMessageContext(message);
+    if (!auth) return true;
+    let response;
+    try {
+      response = await onTextMessage({
+        text,
+        messageId: message.message_id,
+        replyToMessageId: message.reply_to_message && message.reply_to_message.message_id,
+        fromId: auth.fromId,
+        chatId: auth.chatId,
+      });
+    } catch (err) {
+      log("warn", "native text message failed", { error: err && err.message });
+      noteError("text_message", "handler_error");
+      return true;
+    }
+    await replyToMessage(auth.chatId, response, "text_message");
     return true;
   }
 
@@ -554,6 +601,15 @@ function createTelegramNativeRunner({
     try { log(level, message, meta); } catch {}
   }
 
+  function errorLogMeta(err, extra = {}) {
+    const code = err && (err.code || err.causeCode || (err.cause && err.cause.code));
+    return {
+      ...extra,
+      error: err && err.message ? err.message : "",
+      errorCode: code || "",
+    };
+  }
+
   async function sendBoundedMessage(chatId, text) {
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -581,8 +637,8 @@ function createTelegramNativeRunner({
       return { ok: false, errorClass: "not_active" };
     }
     try {
-      await sendBoundedMessage(chatId, body);
-      return { ok: true };
+      const sent = await sendBoundedMessage(chatId, body);
+      return { ok: true, messageId: extractTelegramMessageId(sent) };
     } catch (err) {
       const cls = classifyError(err);
       if (cls === ERROR_CLASSES.RATE_LIMITED) {
@@ -602,12 +658,12 @@ function createTelegramNativeRunner({
           if (!polling || !retryChatId || retryChatId !== chatId) {
             return { ok: false, errorClass: "not_active" };
           }
-          await sendBoundedMessage(retryChatId, body);
-          return { ok: true };
+          const sent = await sendBoundedMessage(retryChatId, body);
+          return { ok: true, messageId: extractTelegramMessageId(sent) };
         } catch (err2) {
           const cls2 = classifyError(err2);
           noteError("notification", cls2);
-          safeLog("warn", "native notification send failed", { errorClass: cls2 });
+          safeLog("warn", "native notification send failed", errorLogMeta(err2, { errorClass: cls2 }));
           return { ok: false, errorClass: cls2 };
         }
       }
@@ -615,7 +671,7 @@ function createTelegramNativeRunner({
       if (cls === ERROR_CLASSES.TOKEN_MISSING) {
         safeLog("debug", "native notification skipped: no token");
       } else {
-        safeLog("warn", "native notification send failed", { errorClass: cls });
+        safeLog("warn", "native notification send failed", errorLogMeta(err, { errorClass: cls }));
       }
       return { ok: false, errorClass: cls };
     }

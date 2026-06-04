@@ -67,6 +67,7 @@ describe("prefs.getDefaults", () => {
       targetSessionKey: "",
       notifyOnComplete: false,
       completionOutputMode: "full",
+      r3DirectSendEnabled: false,
     });
   });
 
@@ -80,7 +81,7 @@ describe("prefs.getDefaults", () => {
   it("seeds permission-capable agents with permissionsEnabled=true", () => {
     const d = prefs.getDefaults();
     // State-only integrations intentionally excluded — no bubble.
-    for (const id of ["claude-code", "codex", "copilot-cli", "cursor-agent", "gemini-cli", "codebuddy", "kiro-cli", "kimi-cli", "qwen-code", "opencode"]) {
+    for (const id of ["claude-code", "codex", "copilot-cli", "cursor-agent", "gemini-cli", "codebuddy", "kiro-cli", "kimi-cli", "qwen-code", "opencode", "hermes"]) {
       assert.strictEqual(
         d.agents[id].permissionsEnabled,
         true,
@@ -94,11 +95,6 @@ describe("prefs.getDefaults", () => {
         `${id} is state-only, permissionsEnabled must default to false`
       );
     }
-    assert.strictEqual(
-      Object.prototype.hasOwnProperty.call(d.agents.hermes, "permissionsEnabled"),
-      false,
-      "hermes should not expose a dead permissionsEnabled switch"
-    );
   });
 
   it("defaults OpenClaw permission bubbles off", () => {
@@ -264,6 +260,7 @@ describe("prefs.validate", () => {
       targetSessionKey: "telegram:987654321",
       notifyOnComplete: false,
       completionOutputMode: "full",
+      r3DirectSendEnabled: false,
     });
     assert.strictEqual(Object.prototype.hasOwnProperty.call(v.tgApproval, "botToken"), false);
   });
@@ -363,13 +360,13 @@ describe("prefs.validate", () => {
     assert.strictEqual(v.agents["claude-code"].permissionsEnabled, true);
   });
 
-  it("normalizes agents: strips Hermes permission/notification flags until implemented", () => {
+  it("normalizes agents: preserves Hermes permission/notification flags", () => {
     const v = prefs.validate({
       agents: {
         hermes: { enabled: true, permissionsEnabled: true, notificationHookEnabled: true },
       },
     });
-    assert.deepStrictEqual(v.agents.hermes, { enabled: true });
+    assert.deepStrictEqual(v.agents.hermes, { enabled: true, permissionsEnabled: true, notificationHookEnabled: true });
   });
 
   it("normalizes agents: preserves Antigravity permission flag but strips notification flag", () => {
@@ -434,18 +431,13 @@ describe("prefs.validate", () => {
 
   it("seeds all known agents with notificationHookEnabled=true", () => {
     const d = prefs.getDefaults();
-    for (const id of ["claude-code", "codex", "copilot-cli", "cursor-agent", "gemini-cli", "codebuddy", "kiro-cli", "kimi-cli", "qwen-code", "opencode", "pi", "openclaw"]) {
+    for (const id of ["claude-code", "codex", "copilot-cli", "cursor-agent", "gemini-cli", "codebuddy", "kiro-cli", "kimi-cli", "qwen-code", "opencode", "pi", "openclaw", "hermes"]) {
       assert.strictEqual(
         d.agents[id].notificationHookEnabled,
         true,
         `${id} should default notificationHookEnabled`
       );
     }
-    assert.strictEqual(
-      Object.prototype.hasOwnProperty.call(d.agents.hermes, "notificationHookEnabled"),
-      false,
-      "hermes should not expose a dead notificationHookEnabled switch"
-    );
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(d.agents["antigravity-cli"], "notificationHookEnabled"),
       false,
