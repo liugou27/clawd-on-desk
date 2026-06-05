@@ -47,6 +47,7 @@ mobile companion over LAN, and Hermes Agent clarify / permission-bubble groundwo
 ### Docs & Contributors
 
 - A new `docs/connections/` plan set documents the Telegram native rework end to end: the D-migration path, the native companion architecture, the R3 Direct Send design, and the code-state reviews that corrected it.
+- Added five bundled Clawd SVG animation assets (`clawd-coffee-hand`, `clawd-coffee-head-flip`, `clawd-aegyo-shy`, `clawd-dizzy`, `clawd-idle-low-battery`) for future theme wiring; they are not yet bound to the default state map.
 - External contributors shipped code across mobile preview, launch-session, Hermes, keep-awake, opencode, theme, and UI fixes, including two first-time contributors (@QingXB, @29206394); 藤知 co-authored the Qoder integration (#423).
 
 ### Contributors
