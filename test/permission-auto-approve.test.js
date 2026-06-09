@@ -354,4 +354,3 @@ describe("auto-pilot: per-agent allow wire formats", () => {
     assert.equal(received.auth, "Bearer tok_test");
   });
 });
-
