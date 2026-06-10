@@ -57,7 +57,10 @@ html, body {
 
 .app {
   display: flex;
-  height: 100vh;
+  /* 100% (zoom-aware), NOT viewport units: those resolve against the
+     unzoomed window and render too tall under the injected text zoom,
+     pushing the content scroller's bottom out of reach. */
+  height: 100%;
   width: 100%;
 }
 
@@ -724,7 +727,7 @@ html, body {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  max-width: min(440px, 52vw);
+  max-width: min(440px, calc(52vw / var(--clawd-text-zoom, 1)));
 }
 .hardware-buddy-quick-command-button {
   min-height: 28px;
@@ -741,7 +744,7 @@ html, body {
   white-space: nowrap;
 }
 .hardware-buddy-text-control {
-  min-width: min(260px, 42vw);
+  min-width: min(260px, calc(42vw / var(--clawd-text-zoom, 1)));
 }
 .hardware-buddy-text-input {
   width: 100%;
@@ -2030,7 +2033,7 @@ html, body {
 }
 .doctor-modal {
   width: min(728px, 100%);
-  max-height: calc(100vh - 32px);
+  max-height: calc(100vh / var(--clawd-text-zoom, 1) - 32px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2611,7 +2614,7 @@ html, body {
 }
 .asset-picker-modal {
   width: min(920px, 100%);
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh / var(--clawd-text-zoom, 1) - 48px);
   overflow: hidden;
   display: flex;
   flex-direction: column;

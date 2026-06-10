@@ -71,7 +71,13 @@ function applyZoomToWindow(win, scale) {
 
     wc.__clawdAppliedTextZoom = s;
     const runInjection = () => {
-      const insertion = wc.insertCSS(`:root { zoom: ${s} !important; }`);
+      // --clawd-text-zoom rides along for stylesheets that need zoom-corrected
+      // viewport units: vh/vw resolve against the UNZOOMED initial containing
+      // block, so `100vh` renders S× too tall inside the zoomed page. Rules
+      // write `calc(100vh / var(--clawd-text-zoom, 1))` to stay window-true.
+      const insertion = wc.insertCSS(
+        `:root { zoom: ${s} !important; --clawd-text-zoom: ${s}; }`
+      );
       if (!insertion || typeof insertion.then !== "function") return insertion;
       return insertion.then((key) => {
         // Swap-then-remove keeps exactly one zoom stylesheet alive; removal

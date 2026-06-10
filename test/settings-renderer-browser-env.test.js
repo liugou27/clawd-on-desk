@@ -2222,7 +2222,7 @@ describe("settings renderer browser environment", () => {
     assert.ok(css.includes(".doctor-action-notice-icon"));
     assert.ok(/@media \(prefers-color-scheme:\s*dark\)\s*\{[\s\S]*\.doctor-action-notice\.ok[\s\S]*color:\s*#8ce99a;[\s\S]*\.doctor-action-notice\.error[\s\S]*color:\s*#fca5a5;/.test(css));
     assert.ok(css.includes("@keyframes doctor-notice-in"));
-    assert.ok(/\.doctor-modal\s*\{[\s\S]*width:\s*min\(728px,\s*100%\);[\s\S]*max-height:\s*calc\(100vh - 32px\);/.test(css));
+    assert.ok(/\.doctor-modal\s*\{[\s\S]*width:\s*min\(728px,\s*100%\);[\s\S]*max-height:\s*calc\(100vh \/ var\(--clawd-text-zoom, 1\) - 32px\);/.test(css));
     assert.ok(/\.doctor-modal\s*\{[\s\S]*gap:\s*8px;[\s\S]*padding:\s*14px;/.test(css));
     assert.ok(css.includes(".doctor-modal-entering"));
     assert.ok(css.includes("@keyframes doctor-modal-in"));
@@ -2319,6 +2319,21 @@ describe("settings renderer browser environment", () => {
     assert.ok(/volume-slider size-slider/.test(tabSource));
     assert.ok(/\.size-control\.dragging \.volume-slider::-webkit-slider-thumb/.test(css));
     assert.ok(/\.size-control\.pending \.volume-slider\s*\{[\s\S]*cursor:\s*ew-resize;/.test(css));
+  });
+
+  it("compensates every viewport unit for the injected text zoom", () => {
+    // vh/vw resolve against the UNZOOMED window (verified by probe: a 100vh
+    // box renders S× the window height under the injected root zoom), so any
+    // bare viewport unit overflows the window at scale > 1 — symptom:
+    // settings pages that cannot scroll to the bottom. Every occurrence must
+    // divide by --clawd-text-zoom or use the zoom-aware 100% chain instead.
+    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
+    const dashboardHtml = fs.readFileSync(path.join(SRC_DIR, "dashboard.html"), "utf8");
+    const mainSource = fs.readFileSync(MAIN_PROCESS, "utf8");
+    const bare = css.match(/\d+(?:\.\d+)?v[hw]\b(?!\s*\/\s*var\(--clawd-text-zoom)/g) || [];
+    assert.deepStrictEqual(bare, [], "settings.css has uncompensated viewport units");
+    assert.doesNotMatch(dashboardHtml, /\d+(?:\.\d+)?v[hw]\b/, "dashboard.html must not use viewport units");
+    assert.match(mainSource, /height:calc\(100vh \/ \$\{resumeScale\}\)/);
   });
 
   it("makes both percent readouts clickable reset buttons", () => {

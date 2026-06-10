@@ -2551,7 +2551,7 @@ function showResumeInput(t) {
     const cancelLabel = t("dismiss") || "Cancel";
     const html = `<!DOCTYPE html><html><head><style>
       *{margin:0;padding:0;box-sizing:border-box}
-      body{zoom:${resumeScale};font-family:system-ui,-apple-system,sans-serif;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh;padding:16px;border-radius:12px;overflow:hidden}
+      body{zoom:${resumeScale};font-family:system-ui,-apple-system,sans-serif;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:calc(100vh / ${resumeScale});padding:16px;border-radius:12px;overflow:hidden}
       .title{font-size:14px;font-weight:600;margin-bottom:12px}
       input{width:100%;padding:8px 12px;border:1px solid #45475a;border-radius:6px;background:#313244;color:#cdd6f4;font-size:13px;outline:none}
       input:focus{border-color:#89b4fa}
