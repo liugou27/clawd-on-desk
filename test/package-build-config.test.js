@@ -44,6 +44,13 @@ describe("package build config", () => {
     );
   });
 
+  it("unpacks agent configs required by external hook scripts", () => {
+    assert.ok(
+      pkg.build.asarUnpack.includes("agents/**/*"),
+      "asarUnpack should include agents/**/*"
+    );
+  });
+
   describe("Windows architecture targets", () => {
     function getWindowsNsisTarget() {
       const targets = pkg.build.win && pkg.build.win.target;
