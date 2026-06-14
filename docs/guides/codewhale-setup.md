@@ -55,8 +55,8 @@
 
 - 全新安装默认不会写入 CodeWhale hooks；需要本机 CodeWhale 追踪时，先到 **Settings → Agents → CodeWhale → Install** 安装并启用集成
 - 安装且启用后，Clawd 启动时会继续同步 7 个 hooks 条目到 `~/.codewhale/config.toml`
-- Settings / Doctor 的 Fix / Repair 会手动重新同步；`node hooks/codewhale-install.js` 仍可用于调试或预注册
-- 卸载支持（`node hooks/codewhale-install.js --uninstall`）
+- Settings / Doctor 的 Fix / Repair 会手动重新同步；`npm run install:codewhale-hooks` 仍可用于调试或预注册
+- 卸载支持（`npm run uninstall:codewhale-hooks`）
 
 ### 2.3 会话标签优化
 
@@ -409,8 +409,8 @@ CodeWhale 有两个独立的 hook/事件系统：
 ### 8.4 Hook 命令用了 electron 而非 node
 
 如果已安装且启用的 CodeWhale 集成在 Clawd 启动同步时覆盖了 hooks：
-1. 从 **Settings → Agents → CodeWhale → Fix / Repair** 重新同步，或调试时手动运行 `node hooks/codewhale-install.js`
-2. 确认 `codewhale-install.js` 包含 Electron 检测修复（第 54 行）
+1. 从 **Settings → Agents → CodeWhale → Fix / Repair** 重新同步，或调试时手动运行 `npm run install:codewhale-hooks`
+2. 确认 `codewhale-install.js` 使用 `resolveNodeBin()`，不会在 Electron 启动路径里固定写入裸 `node`
 
 ### 8.5 安装脚本失败
 
@@ -441,7 +441,7 @@ npm start
 如需在启动桌宠前调试 installer，也可以手动执行：
 
 ```bash
-node hooks/codewhale-install.js
+npm run install:codewhale-hooks
 ```
 
 ### 9.2 日常使用
@@ -461,7 +461,7 @@ codewhale --yolo
 
 ```bash
 # 卸载 hooks
-node hooks/codewhale-install.js --uninstall
+npm run uninstall:codewhale-hooks
 
 # 停止桌宠
 pkill -f "electron.*clawd-on-desk"

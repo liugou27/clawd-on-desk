@@ -884,6 +884,10 @@ describe("hook commands", () => {
     const snapshot = prefs.getDefaults();
     snapshot.dismissedAgentInstallHints = { hermes: true };
     snapshot.dismissedAgentCleanupHints = { "qwen-code": true, hermes: true };
+    assert.ok(
+      MANAGED_CLEANUP_AGENT_IDS.includes("reasonix"),
+      "bulk cleanup should include Reasonix hooks"
+    );
     const result = await commandRegistry.cleanupIntegrations(null, {
       snapshot,
       stopIntegrationForAgent: (agentId) => calls.push(["stopIntegration", agentId]),

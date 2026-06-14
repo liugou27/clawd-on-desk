@@ -23,8 +23,10 @@ const path = require("path");
 const os = require("os");
 const {
   asarUnpackedPath,
+  extractExistingNodeBinFromCommands,
   formatNodeHookCommand,
 } = require("./json-utils");
+const { resolveNodeBin } = require("./server-config");
 
 const CODEWHALE_CONFIG_PATH = path.join(os.homedir(), ".codewhale", "config.toml");
 const MANAGED_MARKER = "managed by clawd-on-desk";
@@ -73,12 +75,26 @@ function hasExplicitConfigPath(options = {}) {
   return !!(typeof options.configPath === "string" && options.configPath.trim()) || !!envConfigPath(options);
 }
 
+function extractExistingCodewhaleNodeBin(sections) {
+  const commands = [];
+  for (const section of sections || []) {
+    if (!section || section.header !== "hooks.hooks" || !Array.isArray(section.lines)) continue;
+    for (const line of section.lines) {
+      if (
+        /^\s*command\s*=/.test(String(line || "")) &&
+        String(line || "").includes(HOOK_SCRIPT_MARKER)
+      ) {
+        commands.push(String(line));
+      }
+    }
+  }
+  return extractExistingNodeBinFromCommands(commands, HOOK_SCRIPT_MARKER);
+}
+
 function buildHookEntry(event, background, hookScriptPath, options = {}) {
-  // process.execPath is the Electron binary when Clawd calls us via
-  // integration-sync.js — fall back to "node" (on PATH) in that case.
   const nodeBin = options.nodeBin !== undefined
     ? options.nodeBin
-    : (process.versions.electron ? "node" : (process.execPath || "node"));
+    : (resolveNodeBin(options) || options.existingNodeBin || "node");
   const nodePath = normalizePath(nodeBin);
   const hookPath = normalizePath(hookScriptPath);
 
@@ -259,6 +275,10 @@ function registerCodewhaleHooks(options = {}) {
 
   // Parse existing config
   const sections = parseTomlSections(content);
+  const existingNodeBin = extractExistingCodewhaleNodeBin(sections);
+  const entryOptions = existingNodeBin
+    ? { ...options, existingNodeBin }
+    : options;
 
   // Find existing clawd-managed hook entries
   const managedHookIndices = [];
@@ -269,7 +289,7 @@ function registerCodewhaleHooks(options = {}) {
   }
 
   // Build new managed entries
-  const newEntries = buildClawdHookSections(hookScriptPath, options);
+  const newEntries = buildClawdHookSections(hookScriptPath, entryOptions);
 
   // Remove old managed entries
   const matchedManagedHooks = managedHookIndices.length;
@@ -401,6 +421,7 @@ module.exports = {
     sectionIsManagedHook,
     ensureHooksEnabled,
     buildClawdHookSections,
+    extractExistingCodewhaleNodeBin,
     envConfigPath,
     hasExplicitConfigPath,
     resolveHookScriptPath,

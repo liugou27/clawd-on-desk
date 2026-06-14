@@ -44,10 +44,30 @@ describe("package build config", () => {
     );
   });
 
-  it("unpacks agent configs required by external hook scripts", () => {
+  it("ships and unpacks runtime files required by external hook scripts", () => {
+    assert.ok(
+      pkg.build.files.includes("hooks/**/*"),
+      "build.files should include hooks/**/*"
+    );
+    assert.ok(
+      pkg.build.files.includes("extensions/**/*"),
+      "build.files should include extensions/**/*"
+    );
+    assert.ok(
+      pkg.build.files.includes("agents/**/*"),
+      "build.files should include agents/**/*"
+    );
     assert.ok(
       pkg.build.asarUnpack.includes("agents/**/*"),
       "asarUnpack should include agents/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("hooks/**/*"),
+      "asarUnpack should include hooks/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("extensions/**/*"),
+      "asarUnpack should include extensions/**/*"
     );
   });
 

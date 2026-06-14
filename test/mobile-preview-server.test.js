@@ -684,6 +684,36 @@ describe("Rotate-on-use", () => {
     try { fs.rmSync(tmpTokenDir, { recursive: true }); } catch {}
   });
 
+  it("regenerateToken fails closed when token state cannot be persisted", () => {
+    const testToken = "1234abcd".repeat(4);
+    fs.writeFileSync(tokenFile, JSON.stringify({
+      token: testToken,
+      previous: null,
+      graceUntil: null,
+      rotatedAt: Date.now(),
+      rotationPending: false,
+    }, null, 2));
+
+    const server = initMobilePreviewServer({
+      sessions,
+      tokenPath: tokenFile,
+      writeTokenState: () => false,
+    });
+
+    assert.strictEqual(server.getToken(), testToken);
+    assert.throws(
+      () => server.regenerateToken(),
+      /Failed to persist mobile token state/
+    );
+    assert.strictEqual(server.getToken(), testToken);
+
+    const persisted = JSON.parse(fs.readFileSync(tokenFile, "utf8"));
+    assert.strictEqual(persisted.token, testToken);
+    assert.strictEqual(persisted.rotationPending, false);
+
+    server.cleanup();
+  });
+
   it("24h expiry with no clients → rotationPending persisted to disk", async () => {
     const testToken = "aabbccdd".repeat(4);
     // rotatedAt far in the past → timer fires immediately
@@ -739,6 +769,41 @@ describe("Rotate-on-use", () => {
       "persisted token should be the new token");
     assert.ok(persisted.rotatedAt >= setupRotatedAt,
       "rotatedAt should be updated by on-connect rotation for next 24h timer");
+
+    client.close();
+    server.cleanup();
+    await new Promise((r) => setTimeout(r, 200));
+  });
+
+  it("rotationPending=true + persistence failure keeps the current token authoritative", async () => {
+    const testToken = "33445566".repeat(4);
+    fs.writeFileSync(tokenFile, JSON.stringify({
+      token: testToken,
+      previous: null,
+      graceUntil: null,
+      rotatedAt: Date.now(),
+      rotationPending: true,
+    }, null, 2));
+
+    const server = initMobilePreviewServer({
+      sessions,
+      tokenPath: tokenFile,
+      writeTokenState: () => false,
+    });
+    const port = await server.start();
+
+    const client = connectClient(port, testToken);
+    await waitForOpen(client.ws);
+    await client.waitFor("snapshot");
+    await assert.rejects(
+      client.waitFor("token_rotate", 250),
+      /Timeout waiting for token_rotate/
+    );
+
+    assert.strictEqual(server.getToken(), testToken);
+    const persisted = JSON.parse(fs.readFileSync(tokenFile, "utf8"));
+    assert.strictEqual(persisted.token, testToken);
+    assert.strictEqual(persisted.rotationPending, true);
 
     client.close();
     server.cleanup();

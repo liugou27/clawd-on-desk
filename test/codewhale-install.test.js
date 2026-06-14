@@ -75,6 +75,59 @@ describe("CodeWhale hook installer", () => {
     assert.doesNotMatch(block, /command = '''& /);
   });
 
+  it("resolves a system Node path when registering from Electron", () => {
+    const block = __test.buildHookEntry("session_start", true, "/app/hooks/codewhale-hook.js", {
+      isElectron: true,
+      platform: "darwin",
+      homeDir: "/Users/tester",
+      accessSync: (candidate) => {
+        if (candidate === "/opt/homebrew/bin/node") return;
+        throw new Error("not found");
+      },
+      execFileSync: () => "",
+    });
+
+    assert.match(
+      block,
+      /command = '''"\/opt\/homebrew\/bin\/node" "\/app\/hooks\/codewhale-hook\.js" "session_start"'''/
+    );
+  });
+
+  it("preserves an existing absolute Node path when Electron node detection fails", () => {
+    const configPath = makeTempConfig();
+    const existingNode = "/Users/tester/.nvm/versions/node/v22.0.0/bin/node";
+    fs.writeFileSync(configPath, [
+      "[hooks]",
+      "enabled = true",
+      "",
+      "[[hooks.hooks]]",
+      "# managed by clawd-on-desk",
+      "event = \"session_start\"",
+      `command = '''"${existingNode}" "/old/clawd/hooks/codewhale-hook.js" "session_start"'''`,
+      "background = true",
+      "",
+    ].join("\n"));
+
+    const result = registerCodewhaleHooks({
+      configPath,
+      hookScriptPath: "/new/clawd/hooks/codewhale-hook.js",
+      isElectron: true,
+      platform: "darwin",
+      homeDir: "/Users/tester",
+      accessSync: () => { throw new Error("not found"); },
+      execFileSync: () => "",
+      silent: true,
+    });
+
+    const content = read(configPath);
+    assert.strictEqual(result.added, HOOK_ENTRIES.length);
+    assert.match(
+      content,
+      /command = '''"\/Users\/tester\/\.nvm\/versions\/node\/v22\.0\.0\/bin\/node" "\/new\/clawd\/hooks\/codewhale-hook\.js" "session_start"'''/
+    );
+    assert.doesNotMatch(content, /command = '''"node"/);
+  });
+
   it("respects CodeWhale config path environment overrides", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "clawd-codewhale-env-"));
     tempDirs.push(root);
