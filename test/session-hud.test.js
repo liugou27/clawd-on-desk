@@ -570,4 +570,23 @@ describe("session HUD v5 three-state runtime contracts (source-level)", () => {
     assert.ok(!/hudAutoHide:/.test(src),
       "session-hud must not send hudAutoHide in snapshot");
   });
+
+  it("destroys hidden HUD windows after a delay to release renderer memory", () => {
+    assert.ok(
+      /const\s+HIDDEN_WINDOW_DESTROY_MS\s*=\s*30000/.test(src),
+      "session-hud should define a hidden-window destroy delay"
+    );
+    assert.ok(
+      /function scheduleHiddenDestroy\(\)\s*\{[\s\S]*?hudWindow\.destroy\(\)/.test(src),
+      "hidden HUD cleanup must eventually destroy the BrowserWindow"
+    );
+    assert.ok(
+      /function hideSessionHud\(\)\s*\{[\s\S]*?scheduleHiddenDestroy\(\)/.test(src),
+      "hiding the HUD should schedule hidden-window cleanup"
+    );
+    assert.ok(
+      /function showSessionHud\(win\)\s*\{[\s\S]*?cancelHiddenDestroy\(\)/.test(src),
+      "showing the HUD should cancel hidden-window cleanup"
+    );
+  });
 });
