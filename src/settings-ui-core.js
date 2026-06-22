@@ -101,7 +101,7 @@
     animationPreviewPosterCache: new Map(),
     pendingAnimationOverrideEdits: new Map(),
     nextAnimationOverrideEditSeq: 1,
-    animOverridesSubtab: "animations",
+    animOverridesSubtab: "map",
     expandedOverrideRowIds: new Set(),
     assetPicker: {
       state: null,
@@ -1213,10 +1213,9 @@
         });
         return;
       }
-      if (state.activeTab !== "animMap") {
-        requestRender({ sidebar: true, content: true });
-        return;
-      }
+      // Any other tab that surfaces theme-derived content: full re-render.
+      requestRender({ sidebar: true, content: true });
+      return;
     }
 
     if (needsAnimOverridesRefresh && (state.activeTab === "animOverrides" || runtime.assetPicker.state)) {

@@ -918,11 +918,15 @@ function loadAnimMapTabForTest({
   vm.runInContext(fs.readFileSync(SETTINGS_ANIM_OVERRIDES_MERGE, "utf8"), context);
   vm.runInContext(fs.readFileSync(SETTINGS_UI_CORE, "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, "settings-tab-anim-map.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, "settings-tab-anim-overrides.js"), "utf8"), context);
 
   const core = context.ClawdSettingsCore;
   core.state.snapshot = snapshot || { theme: "clawd", themeOverrides: {} };
-  core.state.activeTab = "animMap";
+  // The Animation Map now lives as the default "on / off" subtab of the
+  // Animation & Sound Overrides tab, so patching flows through that tab.
+  core.state.activeTab = "animOverrides";
   context.ClawdSettingsTabAnimMap.init(core);
+  context.ClawdSettingsTabAnimOverrides.init(core);
 
   let contentRenderCount = 0;
   core.ops.installRenderHooks({
@@ -4835,20 +4839,37 @@ describe("settings renderer browser environment", () => {
     );
   });
 
-  it("uses animated switches and local theme override patching in Animation Map", () => {
+  it("uses animated switches and local theme override patching in the Animation Map subtab", () => {
     const animMapSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-anim-map.js"), "utf8");
+    const overridesSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-anim-overrides.js"), "utf8");
     const coreSource = fs.readFileSync(SETTINGS_UI_CORE, "utf8");
     assert.ok(animMapSource.includes("state.transientUiState.animMapSwitches"));
     assert.ok(animMapSource.includes("state.mountedControls.animMapSwitches"));
     assert.ok(animMapSource.includes("helpers.attachAnimatedSwitch(sw, {"));
     assert.ok(animMapSource.includes('command("setThemeOverrideDisabled"'));
     assert.ok(!animMapSource.includes("helpers.attachActivation(sw"));
-    assert.ok(animMapSource.includes("function patchInPlace(changes)"));
+    assert.ok(animMapSource.includes("function renderMapSubtab(parent)"));
+    assert.ok(animMapSource.includes("function patchMapInPlace(changes)"));
     assert.ok(animMapSource.includes('Object.prototype.hasOwnProperty.call(changes, "themeOverrides")'));
     assert.ok(animMapSource.includes("helpers.setSwitchVisual(meta.element, readAnimMapVisualOn(meta.themeId, meta.stateKey), { pending: false });"));
-    assert.ok(animMapSource.includes("patchInPlace,"));
-    assert.ok(coreSource.includes('if (state.activeTab !== "animMap") {'));
+    // Folded in: the Animation & Sound Overrides tab renders + patches the map subtab.
+    assert.ok(overridesSource.includes("ClawdSettingsTabAnimMap.renderMapSubtab"));
+    assert.ok(overridesSource.includes("ClawdSettingsTabAnimMap.patchMapInPlace"));
     assert.ok(coreSource.includes("activeTab.patchInPlace(changes"));
+  });
+
+  it("renders the Animation Map switches inside the Animation Overrides 'on / off' subtab", () => {
+    const harness = loadAnimMapTabForTest({
+      snapshot: { theme: "clawd", themeOverrides: {} },
+    });
+    // Map is the default subtab; rendering the overrides tab should mount the
+    // five interrupt on/off switches under it (folded in, not a standalone tab).
+    harness.core.tabs.animOverrides.render(harness.content);
+    assert.strictEqual(harness.core.state.mountedControls.animMapSwitches.size, 5);
+    assert.ok(
+      harness.core.state.mountedControls.animMapReset,
+      "the reset-all control should mount under the subtab"
+    );
   });
 
   it("keeps Animation Map theme override broadcasts in place and syncs the mounted switch", () => {
@@ -4945,6 +4966,37 @@ describe("settings renderer browser environment", () => {
       harness.getContentRenderCount(),
       before + 1,
       "theme changes should force a rebuild so Animation Map switches use the new theme id"
+    );
+  });
+
+  it("drops the cached animation/sound card data when the map subtab patches a theme-override change", () => {
+    const harness = loadAnimMapTabForTest({
+      snapshot: {
+        theme: "clawd",
+        themeOverrides: { clawd: { states: { error: { disabled: false } } } },
+      },
+    });
+    // Simulate having opened the Animations subtab earlier: its card data is cached.
+    harness.core.runtime.animationOverridesData = { theme: { id: "clawd" }, cards: [], sounds: [] };
+    // A mounted map switch so patchMapInPlace takes the in-place themeOverrides branch.
+    const sw = new FakeElement("div");
+    sw.className = "switch on";
+    harness.content.appendChild(sw);
+    harness.core.state.mountedControls.animMapSwitches.set("clawd:error", {
+      element: sw,
+      themeId: "clawd",
+      stateKey: "error",
+    });
+
+    harness.core.ops.applyChanges({
+      changes: { themeOverrides: { clawd: { states: { error: { disabled: true } } } } },
+      snapshot: { theme: "clawd", themeOverrides: { clawd: { states: { error: { disabled: true } } } } },
+    });
+
+    assert.strictEqual(
+      harness.core.runtime.animationOverridesData,
+      null,
+      "a map-subtab theme-override patch must invalidate the cached cards so Animations/Sounds refetch"
     );
   });
 

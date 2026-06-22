@@ -37,13 +37,6 @@ const ICONS = {
     '<circle cx="16.5" cy="10.5" r="1" fill="currentColor"/>' +
     '</svg>',
 
-  // clapperboard
-  animMap:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%">' +
-    '<rect x="2" y="7" width="20" height="13" rx="2"/>' +
-    '<path d="m4 7 3-4M10 7l3-4M16 7l3-4"/>' +
-    '</svg>',
-
   // film strip
   animOverrides:
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%">' +
