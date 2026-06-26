@@ -383,6 +383,77 @@ describe("topmost runtime Windows recovery", () => {
     assert.strictEqual(runtime.isNearWorkAreaEdge({ x: 1, y: 50, width: 80, height: 80 }), true);
     assert.strictEqual(runtime.isNearWorkAreaEdge({ x: 100, y: 50, width: 80, height: 80 }), false);
   });
+
+  it("watchdog stands down on the pet/hit windows when a fullscreen app is foreground (#538)", () => {
+    const timers = makeTimers();
+    const win = new FakeWindow();
+    const hitWin = new FakeWindow();
+    const permissionBubble = new FakeWindow();
+    const kept = [];
+    const runtime = createTopmostRuntime({
+      isWin: true,
+      getWin: () => win,
+      getHitWin: () => hitWin,
+      getPendingPermissions: () => [{ bubble: permissionBubble }],
+      isForegroundFullscreen: () => true,
+      keepOutOfTaskbar: (window) => kept.push(window),
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
+    });
+
+    runtime.startTopmostWatchdog();
+    timers.intervals[0].fn();
+
+    // Pet + hit windows: no topmost re-assert (don't interrupt the game)...
+    assert.deepStrictEqual(win.calls, []);
+    assert.deepStrictEqual(hitWin.calls, []);
+    // ...but taskbar maintenance still runs (non-focus-stealing).
+    assert.ok(kept.includes(win) && kept.includes(hitWin));
+    // Permission bubbles are deliberate interruptions — they keep re-asserting.
+    assert.deepStrictEqual(permissionBubble.calls, [
+      ["setAlwaysOnTop", true, createTopmostRuntime.WIN_TOPMOST_LEVEL],
+    ]);
+  });
+
+  it("watchdog reasserts normally when no fullscreen app is foreground", () => {
+    const timers = makeTimers();
+    const win = new FakeWindow();
+    const hitWin = new FakeWindow();
+    const runtime = createTopmostRuntime({
+      isWin: true,
+      getWin: () => win,
+      getHitWin: () => hitWin,
+      isForegroundFullscreen: () => false,
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
+    });
+
+    runtime.startTopmostWatchdog();
+    timers.intervals[0].fn();
+
+    assert.deepStrictEqual(win.calls, [["setAlwaysOnTop", true, createTopmostRuntime.WIN_TOPMOST_LEVEL]]);
+    assert.deepStrictEqual(hitWin.calls, [["setAlwaysOnTop", true, createTopmostRuntime.WIN_TOPMOST_LEVEL]]);
+  });
+
+  it("guardAlwaysOnTop does not fight topmost loss while a fullscreen app is foreground (#538)", () => {
+    const timers = makeTimers();
+    const win = new FakeWindow();
+    const runtime = createTopmostRuntime({
+      isWin: true,
+      getWin: () => win,
+      getPetWindowBounds: () => ({ x: 100, y: 100, width: 200, height: 200 }),
+      isForegroundFullscreen: () => true,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+    });
+
+    runtime.guardAlwaysOnTop(win);
+    win.emit("always-on-top-changed", null, false);
+
+    // No re-top, no 1px nudge, and no HWND-recovery timer scheduled.
+    assert.deepStrictEqual(win.calls, []);
+    assert.strictEqual(timers.timeouts.length, 0);
+  });
 });
 
 describe("topmost runtime macOS visibility", () => {

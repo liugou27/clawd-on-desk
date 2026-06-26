@@ -35,6 +35,11 @@ function createTopmostRuntime(options = {}) {
   const applyStationaryCollectionBehavior = options.applyStationaryCollectionBehavior
     || defaultApplyStationaryCollectionBehavior;
   const keepOutOfTaskbar = options.keepOutOfTaskbar || (() => {});
+  // Windows-only: when a fullscreen app/game owns the foreground, the watchdog
+  // and always-on-top guard stand down so we stop clawing the pet back over it
+  // every tick (#538). Defaults to "never fullscreen" so non-Windows and any
+  // FFI-load failure keep the original always-reassert behavior.
+  const isForegroundFullscreen = options.isForegroundFullscreen || (() => false);
   const setForceEyeResend = options.setForceEyeResend || (() => {});
   const applyPetWindowPosition = options.applyPetWindowPosition || (() => {});
   const syncHitWin = options.syncHitWin || (() => {});
@@ -152,6 +157,10 @@ function createTopmostRuntime(options = {}) {
     if (!isWin || !winToGuard || typeof winToGuard.on !== "function") return;
     winToGuard.on("always-on-top-changed", (_event, isOnTop) => {
       if (isOnTop || !isLiveWindow(winToGuard)) return;
+      // A fullscreen app legitimately took topmost — don't fight back (no
+      // re-top, no 1px nudge, no HWND recovery). The 5s watchdog restores the
+      // pet within a cycle once the user leaves fullscreen (#538).
+      if (isForegroundFullscreen()) return;
       if (winToGuard === getWin()) {
         // Re-topping only the render window would re-insert it at the top of
         // the topmost band, briefly leaving the hit window beneath it
@@ -184,17 +193,24 @@ function createTopmostRuntime(options = {}) {
     });
   }
 
-  function reassertWindowAndTaskbar(win) {
+  function reassertWindowAndTaskbar(win, { skipTopmost = false } = {}) {
     if (!isLiveWindow(win)) return;
-    win.setAlwaysOnTop(true, WIN_TOPMOST_LEVEL);
+    // When a fullscreen app is foreground we skip the topmost re-assert (the
+    // part that interrupts the fullscreen app) but still keep the pet out of
+    // the taskbar, which is a non-focus-stealing maintenance op.
+    if (!skipTopmost) win.setAlwaysOnTop(true, WIN_TOPMOST_LEVEL);
     keepOutOfTaskbar(win);
   }
 
   function startTopmostWatchdog() {
     if (!isWin || topmostWatchdog) return;
     topmostWatchdog = setIntervalFn(() => {
-      reassertWindowAndTaskbar(getWin());
-      reassertWindowAndTaskbar(getHitWin());
+      // Only the pet + hit windows stand down under a fullscreen foreground.
+      // Permission bubbles / HUD below are deliberate interruptions the user
+      // must act on, so they keep re-asserting even over a fullscreen app.
+      const skipTopmost = isForegroundFullscreen();
+      reassertWindowAndTaskbar(getWin(), { skipTopmost });
+      reassertWindowAndTaskbar(getHitWin(), { skipTopmost });
 
       for (const perm of getPendingPermissions()) {
         const bubble = perm && perm.bubble;

@@ -156,6 +156,15 @@ if (isWin) {
   }
 }
 
+// ── Windows: foreground-fullscreen probe (suppress topmost over games) ──
+// Best-effort; degrades to "never fullscreen" if koffi/user32 is unavailable,
+// so a broken probe can never hide the pet.
+const { createForegroundFullscreenProbe } = require("./win-fullscreen-detect");
+const _isForegroundFullscreen = createForegroundFullscreenProbe({
+  isWin,
+  onError: (err) => console.warn("Clawd: win-fullscreen-detect not available:", err && err.message),
+});
+
 // ── Windows: switch the dev console to UTF-8 ──
 //
 // `npm start` attaches Clawd to a parent PowerShell/cmd console. That
@@ -1222,6 +1231,7 @@ const topmostRuntime = createTopmostRuntime({
   isDragLocked: () => petWindowRuntime.isDragLocked(),
   isMiniAnimating: () => _mini.getIsAnimating(),
   isMiniTransitioning: () => _mini.getMiniTransitioning(),
+  isForegroundFullscreen: () => _isForegroundFullscreen(),
   keepOutOfTaskbar,
   setForceEyeResend,
   applyPetWindowPosition,
