@@ -420,6 +420,13 @@ function buildStateBody(event, payload, resolve) {
     if (bgCount > 0) body.background_tasks_count = bgCount;
     if (cronCount > 0) body.session_crons_count = cronCount;
     if (payload.stop_hook_active === true) body.stop_hook_active = true;
+    // TEMP DEBUG (#406 happy-not-playing diag) — REMOVE after diagnosis
+    try {
+      fs.appendFileSync(
+        `${process.env.APPDATA}\\clawd-on-desk\\stop-gate-debug.log`,
+        `${new Date().toISOString()} STOP sid=${payload.session_id || "?"} stop_hook_active=${JSON.stringify(payload.stop_hook_active)} bg=${bgCount} cron=${cronCount} hasFinalText=${!!body.assistant_last_output} headless=${JSON.stringify(payload.headless)} keys=[${Object.keys(payload || {}).join(",")}]\n`
+      );
+    } catch {}
   }
   if (process.env.CLAWD_REMOTE) {
     body.host = readHostPrefix();
@@ -464,10 +471,34 @@ function main() {
     .then((payload) => {
       const body = buildStateBody(event, payload || {}, resolve);
       if (!body) process.exit(0);
+      // Completion events (Stop) must actually reach Clawd to fire the happy
+      // animation, but they are low-frequency. A busy system (e.g. right after
+      // a dense burst of tool calls) can push the local POST past the tight
+      // 100ms budget, silently dropping the celebration. Give Stop a generous
+      // timeout: connection-refused (Clawd not running) still fails instantly,
+      // so an idle machine is never penalized — only a live-but-slow Clawd uses
+      // the headroom. High-frequency events keep 100ms so they never stall CC.
+      const isCompletionEvent = body.event === "Stop";
+      const statePostTimeoutMs = isCompletionEvent ? 1500 : 100;
+      const postStartedAt = Date.now();
       postStateToRunningServer(
         JSON.stringify(body),
-        { timeoutMs: 100 },
-        () => process.exit(0)
+        { timeoutMs: statePostTimeoutMs },
+        (posted, port) => {
+          // TEMP DEBUG (happy-not-playing diag) — record POST delivery result,
+          // elapsed time, and the timeout used for Stop. elapsedMs ≈ timeoutMs
+          // means a real timeout (port alive but slow); elapsedMs ≈ 0 means
+          // connection-refused (port not listening). REMOVE after diagnosis.
+          if (body.event === "Stop") {
+            try {
+              fs.appendFileSync(
+                `${process.env.APPDATA}\\clawd-on-desk\\stop-gate-debug.log`,
+                `${new Date().toISOString()} POST-RESULT event=Stop posted=${JSON.stringify(posted)} port=${JSON.stringify(port)} elapsedMs=${Date.now() - postStartedAt} timeoutMs=${statePostTimeoutMs}\n`
+              );
+            } catch {}
+          }
+          process.exit(0);
+        }
       );
     })
     .catch(() => process.exit(0));
