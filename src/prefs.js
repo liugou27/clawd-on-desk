@@ -215,7 +215,15 @@ const SCHEMA = {
   // #562: Windows-only. When ON, the pet floats ON TOP of a foreground
   // fullscreen app (e.g. a borderless game) and stays draggable, instead of
   // standing down below it (#538). Default ON — most users want to glance at
-  // the pet while gaming. Exclusive-fullscreen games may not honor the overlay.
+  // the pet while gaming. OFF only restores the #538 stand-down, which depends
+  // on the game grabbing topmost: that fires for exclusive-fullscreen, but a
+  // borderless-fullscreen game never yields topmost, so the pet floats on top
+  // there regardless of this pref (a Windows platform limit — forcing the pet
+  // below via setAlwaysOnTop(false) scrambles z-order, so we don't). To remove
+  // the pet entirely the user hides it (Hide Pet). No settings UI as of #562
+  // (the toggle was a non-choice for borderless games — see
+  // settings-tab-general.js); this pref persists as an escape hatch and can be
+  // re-exposed.
   fullscreenOverlay: { type: "boolean", default: true },
   // Text-window zoom (bubbles, HUD, dashboard, settings, resume input). The
   // pet itself scales via `size` and is never zoomed. `textScale` is the

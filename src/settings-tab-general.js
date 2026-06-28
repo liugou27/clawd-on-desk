@@ -21,7 +21,6 @@
     "disableMiniMode",
     "freeRoam",
     "keepSizeAcrossDisplays",
-    "fullscreenOverlay",
     "openAtLogin",
     "hideBubbles",
     "bubbleFollowPet",
@@ -149,11 +148,15 @@
         labelKey: "rowKeepSizeAcrossDisplays",
         descKey: "rowKeepSizeAcrossDisplaysDesc",
       }),
-      helpers.buildSwitchRow({
-        key: "fullscreenOverlay",
-        labelKey: "rowFullscreenOverlay",
-        descKey: "rowFullscreenOverlayDesc",
-      }),
+      // #562: the fullscreenOverlay switch is intentionally NOT rendered here.
+      // For borderless-fullscreen games (the common case) "off" can't drop the
+      // pet behind the game anyway (a Windows limit), so the toggle was a
+      // non-choice. The pref + #538 stand-down logic stay (default on) as an
+      // escape hatch for exclusive-fullscreen games, whose overlay behavior is
+      // unverified. To restore the toggle: re-add a buildSwitchRow for
+      // "fullscreenOverlay" here AND add its key back into GENERAL_IN_PLACE_KEYS
+      // (dropped so patchInPlace doesn't force a full re-render for a pref that
+      // has no mounted control). The rowFullscreenOverlay[Desc] i18n keys remain.
     ]));
 
     // System & startup: machine-level toggles (low-power idle throttling and
