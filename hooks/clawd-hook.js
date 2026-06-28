@@ -6,7 +6,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const { postStateToRunningServer, readHostPrefix } = require("./server-config");
-const { fitStateBodyToByteBudget, utf8ByteLength } = require("./state-payload-size");
+const { fitStateBodyToByteBudget } = require("./state-payload-size");
 const { extractClaudeContextUsageFromEntries } = require("./context-usage");
 const { createPidResolver, readStdinJson, getPlatformConfig } = require("./shared-process");
 
@@ -421,13 +421,6 @@ function buildStateBody(event, payload, resolve) {
     if (bgCount > 0) body.background_tasks_count = bgCount;
     if (cronCount > 0) body.session_crons_count = cronCount;
     if (payload.stop_hook_active === true) body.stop_hook_active = true;
-    // TEMP DEBUG (#406 happy-not-playing diag) — REMOVE after diagnosis
-    try {
-      fs.appendFileSync(
-        `${process.env.APPDATA}\\clawd-on-desk\\stop-gate-debug.log`,
-        `${new Date().toISOString()} STOP sid=${payload.session_id || "?"} stop_hook_active=${JSON.stringify(payload.stop_hook_active)} bg=${bgCount} cron=${cronCount} hasFinalText=${!!body.assistant_last_output} headless=${JSON.stringify(payload.headless)} keys=[${Object.keys(payload || {}).join(",")}]\n`
-      );
-    } catch {}
   }
   if (process.env.CLAWD_REMOTE) {
     body.host = readHostPrefix();
@@ -472,43 +465,22 @@ function main() {
     .then((payload) => {
       const body = buildStateBody(event, payload || {}, resolve);
       if (!body) process.exit(0);
-      // Completion events (Stop) must actually reach Clawd to fire the happy
-      // animation, but they are low-frequency. A busy system (e.g. right after
-      // a dense burst of tool calls) can push the local POST past the tight
-      // 100ms budget, silently dropping the celebration. Give Stop a generous
-      // timeout: connection-refused (Clawd not running) still fails instantly,
-      // so an idle machine is never penalized — only a live-but-slow Clawd uses
-      // the headroom. High-frequency events keep 100ms so they never stall CC.
+      // Completion events (Stop) fire the happy animation, are low-frequency,
+      // and matter more than a few ms of latency. Give them a generous POST
+      // timeout so a momentarily slow (but alive) Clawd still receives them;
+      // connection-refused (Clawd not running) still fails instantly, so an
+      // idle machine is never penalized. High-frequency events keep 100ms so
+      // they never stall the agent.
       const isCompletionEvent = body.event === "Stop";
       const statePostTimeoutMs = isCompletionEvent ? 1500 : 100;
-      const postStartedAt = Date.now();
       // Byte-fit the body so a long CJK assistant_last_output can't push it past
       // the server's /state cap and trigger a headerless 413 (read back as
       // posted=false, dropping the happy completion). hooks/state-payload-size.js.
-      const rawBodyBytes = utf8ByteLength(JSON.stringify(body)); // TEMP DEBUG: pre-fit size
       const fitted = fitStateBodyToByteBudget(body);
       postStateToRunningServer(
         JSON.stringify(fitted.body),
         { timeoutMs: statePostTimeoutMs },
-        (posted, port) => {
-          // TEMP DEBUG (happy-not-playing diag) — record POST delivery result,
-          // elapsed time, the Stop timeout, the serialized body size, and what
-          // byte-fitting did to assistant_last_output. bodyBytes near the cap
-          // means size was the culprit; posted=false with bodyBytes well under
-          // the cap points elsewhere. REMOVE after diagnosis.
-          if (body.event === "Stop") {
-            try {
-              const assistantChars = typeof body.assistant_last_output === "string"
-                ? body.assistant_last_output.length : 0;
-              const assistantBytes = utf8ByteLength(body.assistant_last_output || "");
-              fs.appendFileSync(
-                `${process.env.APPDATA}\\clawd-on-desk\\stop-gate-debug.log`,
-                `${new Date().toISOString()} POST-RESULT event=Stop posted=${JSON.stringify(posted)} port=${JSON.stringify(port)} elapsedMs=${Date.now() - postStartedAt} timeoutMs=${statePostTimeoutMs} rawBodyBytes=${rawBodyBytes} bodyBytes=${fitted.bytes} assistantChars=${assistantChars} assistantBytes=${assistantBytes} fitTruncated=${fitted.assistantTruncated} fitDropped=${fitted.assistantDropped}\n`
-              );
-            } catch {}
-          }
-          process.exit(0);
-        }
+        () => process.exit(0)
       );
     })
     .catch(() => process.exit(0));
