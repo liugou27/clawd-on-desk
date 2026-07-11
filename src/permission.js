@@ -826,6 +826,20 @@ function dismissPermissionWithoutDecision(permEntry, message) {
 }
 
 function notifyPermissionsChanged(reason) {
+  // #640: every path that adds or removes a pendingPermissions entry funnels
+  // through here — including resolvePermissionEntry's inline splice, which is
+  // what Allow/Deny clicks, Enter submits, and the auto-close timer all use.
+  // A bubble can leave the list while its text field still holds focus (no
+  // blur ever fires, and handleImeEditing can't match a spliced entry), so
+  // this is the one reliable place to re-run the editing-overlap dodge scan
+  // and restore the pet. Cheap + edge-triggered; platform gate lives inside.
+  if (typeof ctx.syncImeEditingPetDodge === "function") {
+    try {
+      ctx.syncImeEditingPetDodge();
+    } catch (err) {
+      permLog(`syncImeEditingPetDodge failed: ${err && err.message ? err.message : err}`);
+    }
+  }
   if (typeof ctx.onPermissionsChanged !== "function") return;
   try {
     ctx.onPermissionsChanged(reason);
@@ -864,14 +878,6 @@ function removePendingPermission(permEntry, reason = "removed") {
   if (idx === -1) return false;
   pendingPermissions.splice(idx, 1);
   notifyPermissionsChanged(reason);
-  // #640: if this bubble closed while its text field was still focused, the
-  // pet may be faded + click-through (syncImeEditingPetDodge) with no blur
-  // event coming to undo it. Re-run the visibility pass — it re-scans
-  // pendingPermissions and restores the pet once no editing bubble remains.
-  if (isMac && permEntry.bubble && permEntry.bubble.__clawdMacImeEditing
-      && typeof ctx.reapplyMacVisibility === "function") {
-    ctx.reapplyMacVisibility();
-  }
   return true;
 }
 

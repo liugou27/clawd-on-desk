@@ -1217,6 +1217,10 @@ let getSessionHudWindow = () => null;
 const themeFadeSequencer = createThemeFadeSequencer({
   getRenderWindow: () => win,
   getHitWindow: () => hitWin,
+  // #640: while the pet dodges an editing bubble its baseline opacity is the
+  // faded value, not 1 — restoring to 1 mid-edit would plant an opaque pet on
+  // top of the box being typed into. (Lazy: topmostRuntime is defined below.)
+  getRestoreOpacity: () => topmostRuntime.getPetTargetOpacity(),
   fadeOutMs: THEME_SWITCH_FADE_OUT_MS,
   fadeInMs: THEME_SWITCH_FADE_IN_MS,
   fallbackMs: THEME_SWITCH_FADE_FALLBACK_MS,
@@ -1334,6 +1338,10 @@ const _permCtx = {
   getTextScale: () => getTextScaleForPetWindows(),
   guardAlwaysOnTop,
   reapplyMacVisibility,
+  // #640: permission.js re-runs the editing-overlap dodge scan whenever the
+  // pendingPermissions list changes (notifyPermissionsChanged), so a bubble
+  // that leaves the list mid-edit can't strand the pet faded + click-through.
+  syncImeEditingPetDodge: () => topmostRuntime.syncImeEditingPetDodge(),
   isAgentPermissionsEnabled: (agentId) =>
     _isAgentPermissionsEnabled({ agents: _settingsController.get("agents") }, agentId),
   // DANGER "auto-pilot": when true, showPermissionBubble auto-approves every

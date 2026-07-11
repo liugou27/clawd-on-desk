@@ -632,7 +632,10 @@ function createPetWindowRuntime(options = {}) {
     // setShape: native hit region, no per-pixel alpha dependency.
     // hitWin has no visual content, so clipping is irrelevant.
     hitWin.setShape([{ x: 0, y: 0, width: initialHitWindowBounds.width, height: initialHitWindowBounds.height }]);
-    hitWin.setIgnoreMouseEvents(false); // PERMANENT: never toggle outside settings preview protection.
+    // Baseline: interactive. Only two writers may toggle this — the Windows
+    // settings-size-preview protection (below) and the macOS editing-overlap
+    // dodge (#640, topmost-runtime.js). They are platform-disjoint.
+    hitWin.setIgnoreMouseEvents(false);
     if (isMac) hitWin.setFocusable(false);
     hitWin.showInactive();
     keepOutOfTaskbar(hitWin);

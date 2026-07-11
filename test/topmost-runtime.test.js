@@ -958,4 +958,26 @@ describe("IME editing pet dodge (#640)", () => {
       [["setIgnoreMouseEvents", true]]
     );
   });
+
+  // #640: external opacity writers (theme-switch fade) restore to this value
+  // instead of a hardcoded 1, so a theme reload mid-edit lands back on the
+  // dodge baseline rather than planting an opaque pet over the input box.
+  it("getPetTargetOpacity tracks the dodge state", () => {
+    const { bubble, runtime } = makeDodgeSetup();
+
+    assert.strictEqual(runtime.getPetTargetOpacity(), 1,
+      "before any sync the baseline is full opacity");
+
+    runtime.syncImeEditingPetDodge();
+    assert.strictEqual(
+      runtime.getPetTargetOpacity(),
+      createTopmostRuntime.IME_EDIT_PET_FADE_OPACITY,
+      "while dodging, the baseline is the faded value"
+    );
+
+    delete bubble.__clawdMacImeEditing;
+    runtime.syncImeEditingPetDodge();
+    assert.strictEqual(runtime.getPetTargetOpacity(), 1,
+      "after the edit ends the baseline returns to full opacity");
+  });
 });

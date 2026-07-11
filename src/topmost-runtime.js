@@ -223,11 +223,18 @@ function createTopmostRuntime(options = {}) {
   // space — always above the editing bubble, which #626 drops to the normal
   // level — so until a native space de-delegation exists (#640 phase 2) this
   // fade is the mitigation. Edge-triggered on the overlap state; every
-  // transition path funnels here: handleImeEditing and bubble teardown call
-  // reapplyMacVisibility, and pet moves call this directly (main.js).
+  // transition path funnels here: handleImeEditing calls reapplyMacVisibility,
+  // pet moves call this directly (main.js), and every pendingPermissions
+  // add/remove calls this via notifyPermissionsChanged (permission.js) — that
+  // last one covers bubbles that leave the list while their text field still
+  // holds focus (Enter submit, auto-close), where no blur ever fires.
   // The hit window's ignore-mouse has exactly one other writer — the Windows
   // settings-size-preview protection (pet-window-runtime.js) — which is
   // platform-disjoint with this macOS-only path, so the two never fight.
+  // The render window's opacity has one other writer, the theme-switch fade
+  // (theme-fade-sequencer.js): its restore target asks getPetTargetOpacity()
+  // below instead of assuming 1, so a mid-edit theme reload lands back on the
+  // faded value rather than snapping the pet opaque over the input box.
   function syncImeEditingPetDodge() {
     if (!isMac) return;
     const editingBubble = findImeEditingBubble();
@@ -248,6 +255,13 @@ function createTopmostRuntime(options = {}) {
     if (isLiveWindow(hitWin) && typeof hitWin.setIgnoreMouseEvents === "function") {
       hitWin.setIgnoreMouseEvents(overlap);
     }
+  }
+
+  // #640: the render window's baseline opacity as far as the dodge is
+  // concerned. External opacity writers that restore "full" opacity (the
+  // theme-switch fade) must ask this instead of hardcoding 1.
+  function getPetTargetOpacity() {
+    return imeEditingPetDodge ? IME_EDIT_PET_FADE_OPACITY : 1;
   }
 
   function isNearWorkAreaEdge(bounds, tolerance = 2) {
@@ -457,6 +471,7 @@ function createTopmostRuntime(options = {}) {
     reassertWinTopmost,
     reapplyMacVisibility,
     syncImeEditingPetDodge,
+    getPetTargetOpacity,
     isNearWorkAreaEdge,
     scheduleHwndRecovery,
     guardAlwaysOnTop,

@@ -22,11 +22,10 @@ Module._load = function (request) {
 const initPermission = require("../src/permission");
 Module._load = __origModuleLoad;
 
-const macOnly = { skip: process.platform !== "darwin" ? "macOS-only" : false };
-
 function makeCtx(overrides = {}) {
   return {
     reapplyMacVisibility: () => {},
+    syncImeEditingPetDodge: () => {},
     getSettingsSnapshot: () => ({}),
     isAgentPermissionsEnabled: () => true,
     getBubblePolicy: () => ({ enabled: true, autoCloseMs: null }),
@@ -100,10 +99,17 @@ describe("repositionBubbles freeze while editing (#640)", () => {
   });
 });
 
-describe("removePendingPermission editing cleanup (#640)", () => {
-  it("re-runs the mac visibility pass when the removed bubble was mid-edit", macOnly, () => {
-    const reapply = [];
-    const ctx = makeCtx({ reapplyMacVisibility: () => reapply.push(true) });
+// #640: the dodge re-scan is funneled through notifyPermissionsChanged, so it
+// fires on EVERY pendingPermissions change regardless of platform or editing
+// state — the platform gate and the edge-trigger live in topmost-runtime.js
+// (covered by topmost-runtime.test.js). What matters here is that every
+// production removal path reaches the scan, because a bubble can leave the
+// list while its text field still holds focus (Enter submit, auto-close) and
+// no blur will ever fire to restore the pet.
+describe("pendingPermissions changes re-run the dodge scan (#640)", () => {
+  it("fires when removePendingPermission drops a mid-edit bubble", () => {
+    const syncs = [];
+    const ctx = makeCtx({ syncImeEditingPetDodge: () => syncs.push(true) });
     const { removePendingPermission, pendingPermissions } = initPermission(ctx);
 
     const bubble = makeBubble();
@@ -113,20 +119,43 @@ describe("removePendingPermission editing cleanup (#640)", () => {
 
     removePendingPermission(perm, "test");
 
-    assert.strictEqual(reapply.length, 1,
-      "closing an editing bubble must restore the pet via reapplyMacVisibility");
+    assert.strictEqual(syncs.length, 1,
+      "removing an editing bubble must re-run the dodge scan");
   });
 
-  it("does not run the visibility pass for a non-editing bubble", macOnly, () => {
-    const reapply = [];
-    const ctx = makeCtx({ reapplyMacVisibility: () => reapply.push(true) });
+  it("fires on resolvePermissionEntry — the path Allow/Deny, Enter submit, and auto-close use", () => {
+    const syncs = [];
+    const ctx = makeCtx({ syncImeEditingPetDodge: () => syncs.push(true) });
+    const { resolvePermissionEntry, pendingPermissions } = initPermission(ctx);
+
+    const bubble = makeBubble({ webContents: { send: () => {} } });
+    bubble.__clawdMacImeEditing = true;
+    const perm = {
+      bubble,
+      suggestions: [],
+      createdAt: Date.now(),
+      res: null, // client gone — resolve still must splice and re-scan
+    };
+    pendingPermissions.push(perm);
+
+    resolvePermissionEntry(perm, "no-decision", "Auto-closed");
+
+    assert.strictEqual(pendingPermissions.length, 0,
+      "entry must be spliced by resolvePermissionEntry");
+    assert.strictEqual(syncs.length, 1,
+      "resolving an editing bubble must re-run the dodge scan — this is the "
+      + "production close path, which never goes through removePendingPermission");
+    if (perm.hideTimer) clearTimeout(perm.hideTimer);
+  });
+
+  it("survives a throwing sync without breaking the removal", () => {
+    const ctx = makeCtx({ syncImeEditingPetDodge: () => { throw new Error("boom"); } });
     const { removePendingPermission, pendingPermissions } = initPermission(ctx);
 
     const perm = { bubble: makeBubble(), suggestions: [] };
     pendingPermissions.push(perm);
 
-    removePendingPermission(perm, "test");
-
-    assert.strictEqual(reapply.length, 0);
+    assert.strictEqual(removePendingPermission(perm, "test"), true);
+    assert.strictEqual(pendingPermissions.length, 0);
   });
 });
