@@ -23,6 +23,7 @@ describe("doctor agent descriptors", () => {
         "kiro-cli",
         "kimi-cli",
         "qwen-code",
+        "zcode",
         "codewhale",
         "opencode",
         "pi",

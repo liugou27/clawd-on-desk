@@ -288,6 +288,7 @@ function detectInstallation(descriptor, paths, options) {
     case "cursor-agent":
     case "codebuddy":
     case "qwen-code":
+    case "zcode":
     case "codewhale":
     case "opencode":
     case "qoder":

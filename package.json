@@ -32,6 +32,8 @@
     "install:kiro-hooks": "node hooks/kiro-install.js",
     "install:kimi-hooks": "node hooks/kimi-install.js",
     "install:qwen-hooks": "node hooks/qwen-code-install.js",
+    "install:zcode-hooks": "node hooks/zcode-install.js",
+    "uninstall:zcode-hooks": "node hooks/zcode-install.js --uninstall",
     "install:codewhale-hooks": "node hooks/codewhale-install.js",
     "uninstall:codewhale-hooks": "node hooks/codewhale-install.js --uninstall",
     "install:pi-extension": "node hooks/pi-install.js",

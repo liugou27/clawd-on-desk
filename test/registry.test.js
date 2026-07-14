@@ -17,6 +17,7 @@ describe("Agent Registry", () => {
       "kiro-cli",
       "kimi-cli",
       "qwen-code",
+      "zcode",
       "codewhale",
       "opencode",
       "pi",
